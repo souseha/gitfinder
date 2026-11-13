@@ -283,3 +283,57 @@ describe('previousThumbUrl', () => {
     expect(gh.previousThumbUrl(repo, node('added'), 480)).toBeNull();
   });
 });
+
+describe('fetchCommit when GitHub cannot compute the diff', () => {
+  const F = 'f'.repeat(40);
+  const P = 'e'.repeat(40);
+  const blob = (path, sha) => ({ path, type: 'blob', sha, size: 10 });
+  const commitBody = (parents) => ({ sha: F, parents, commit: { message: 'huge update' }, files: [], stats: { total: 0 } });
+  const routeFetch = (routes) =>
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      const hit = Object.entries(routes).find(([part]) => String(url).includes(part));
+      return hit ? json(hit[1]) : json({ message: 'Not Found' }, 404);
+    });
+
+  it('compares the commit tree with its parent tree', async () => {
+    const spy = routeFetch({
+      [`/commits/${F}`]: commitBody([{ sha: P }]),
+      [`/git/trees/${F}?recursive=1`]: {
+        truncated: false,
+        tree: [{ path: 'img', type: 'tree', sha: 't1' }, blob('img/same.png', 's1'), blob('img/changed.png', 'new'), blob('img/new.png', 'n1'), blob('moved/x.png', 'mv')],
+      },
+      [`/git/trees/${P}?recursive=1`]: {
+        truncated: false,
+        tree: [{ path: 'img', type: 'tree', sha: 't0' }, blob('img/same.png', 's1'), blob('img/changed.png', 'old'), blob('img/gone.png', 'g1'), blob('old/x.png', 'mv')],
+      },
+    });
+    const res = await gh.fetchCommit({ owner: 'a', name: 'b', commit: F });
+    const byPath = Object.fromEntries(res.entries.map((e) => [e.path, e.change]));
+    expect(byPath).toEqual({
+      'img/new.png': { status: 'added', previousPath: null },
+      'img/gone.png': { status: 'removed', previousPath: null },
+      'img/changed.png': { status: 'modified', previousPath: null },
+      'moved/x.png': { status: 'renamed', previousPath: 'old/x.png' },
+    });
+    expect(res).toMatchObject({ sha: F, parentSha: P, message: 'huge update', truncated: false });
+    expect(spy.mock.calls.some(([u]) => String(u).includes(`/git/trees/${P}?recursive=1`))).toBe(true);
+  });
+
+  it('marks the result incomplete when a tree is truncated', async () => {
+    routeFetch({
+      [`/commits/${F}`]: commitBody([{ sha: P }]),
+      [`/git/trees/${F}?recursive=1`]: { truncated: true, tree: [blob('a.png', '1')] },
+      [`/git/trees/${P}?recursive=1`]: { truncated: false, tree: [] },
+    });
+    const res = await gh.fetchCommit({ owner: 'a', name: 'b', commit: F });
+    expect(res.truncated).toBe(true);
+    expect(res.entries).toHaveLength(1);
+  });
+
+  it('does not fetch trees for a root commit', async () => {
+    const spy = routeFetch({ [`/commits/${F}`]: commitBody([]) });
+    const res = await gh.fetchCommit({ owner: 'a', name: 'b', commit: F });
+    expect(res.entries).toEqual([]);
+    expect(spy.mock.calls.some(([u]) => String(u).includes('/git/trees/'))).toBe(false);
+  });
+});

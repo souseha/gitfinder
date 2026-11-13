@@ -176,8 +176,46 @@
    * 抓一個 commit 變動的檔案（逐頁抓到不滿一頁或滿 10 頁為止）
    * @returns {Promise<{ sha: string, parentSha: string|null, message: string, entries: object[], truncated: boolean }>}
    */
+  const changeEntry = (path, status, size = null, previousPath = null) => ({
+    path, type: 'blob', size, change: { status, previousPath },
+  });
+
+  /**
+   * 大型 repo 的 commit，GitHub 常常算不出差異：照樣回 200，但 files 是空陣列。
+   * 這時改成直接比較這個 commit 和上一版的整棵檔案樹（多 2 次 API）。
+   * 內容（blob sha）相同、只是路徑不同的視為改名。
+   */
+  async function diffTrees(repoBase, sha, parentSha, opts) {
+    const [after, before] = await Promise.all([fetchTree(repoBase, sha, opts), fetchTree(repoBase, parentSha, opts)]);
+    const blobs = (tree) => (Array.isArray(tree.tree) ? tree.tree : []).filter((e) => e.type === 'blob');
+    const now = new Map(blobs(after).map((e) => [e.path, e]));
+    const was = new Map(blobs(before).map((e) => [e.path, e]));
+    const removed = [...was.values()].filter((e) => !now.has(e.path));
+    const removedBySha = new Map();
+    removed.forEach((e) => { if (!removedBySha.has(e.sha)) removedBySha.set(e.sha, e.path); });
+    const renamedFrom = new Set();
+    const entries = [];
+    for (const e of now.values()) {
+      const old = was.get(e.path);
+      if (old) {
+        if (old.sha !== e.sha) entries.push(changeEntry(e.path, 'modified', e.size));
+        continue;
+      }
+      const from = removedBySha.get(e.sha);
+      if (from && !renamedFrom.has(from)) {
+        renamedFrom.add(from);
+        entries.push(changeEntry(e.path, 'renamed', e.size, from));
+      } else {
+        entries.push(changeEntry(e.path, 'added', e.size));
+      }
+    }
+    removed.filter((e) => !renamedFrom.has(e.path)).forEach((e) => entries.push(changeEntry(e.path, 'removed', e.size)));
+    return { entries, truncated: !!after.truncated || !!before.truncated };
+  }
+
   async function fetchCommit({ owner, name, commit }, opts = {}) {
-    const base = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/commits/${encodeURIComponent(commit)}`;
+    const repoBase = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+    const base = `${repoBase}/commits/${encodeURIComponent(commit)}`;
     const pages = [];
     let truncated = false;
     for (let page = 1; page <= MAX_COMMIT_PAGES; page += 1) {
@@ -189,13 +227,14 @@
     }
     const first = pages[0];
     const parents = Array.isArray(first.parents) ? first.parents : [];
-    return {
-      sha: first.sha,
-      parentSha: parents.length ? parents[0].sha : null,
-      message: (first.commit && first.commit.message) || '',
-      entries: pages.flatMap((p) => (Array.isArray(p.files) ? p.files : [])).map(toEntry).filter(Boolean),
-      truncated,
-    };
+    const parentSha = parents.length ? parents[0].sha : null;
+    let entries = pages.flatMap((p) => (Array.isArray(p.files) ? p.files : [])).map(toEntry).filter(Boolean);
+    if (!entries.length && parentSha) {
+      const diff = await diffTrees(repoBase, first.sha, parentSha, opts);
+      entries = diff.entries;
+      truncated = diff.truncated;
+    }
+    return { sha: first.sha, parentSha, message: (first.commit && first.commit.message) || '', entries, truncated };
   }
 
   const encPath = (p) => p.split('/').map(encodeURIComponent).join('/');

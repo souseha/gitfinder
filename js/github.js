@@ -82,18 +82,53 @@
    * 組好後會快取，所以要多等幾次、間隔拉長，給 GitHub 時間完成。
    */
   const RETRY_DELAYS = [1000, 3000, 6000, 10000];
+  /**
+   * 沒有 token 時每小時只有 60 次，失敗的請求也會扣額度，所以少試幾次；
+   * 間隔拉長，總等待時間仍夠 GitHub 組完大倉庫的檔案樹
+   */
+  const RETRY_DELAYS_NO_TOKEN = [4000, 8000, 12000];
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  const MINUTE = 60 * 1000;
+  /** 本機快取多久：分支會更新所以短；用完整 sha 指定的內容永遠不變 */
+  const CACHE_AGE = Object.freeze({
+    repoInfo: 60 * MINUTE,
+    branchTree: 10 * MINUTE,
+    immutable: 30 * 24 * 60 * MINUTE,
+  });
+  const FULL_SHA_RE = /^[0-9a-f]{40}$/i;
+
+  /** 讀本機快取；內容壞掉就當作沒有 */
+  async function readCached(url, maxAge) {
+    const text = await GF.apiCache.read(url, maxAge);
+    if (text == null) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  }
+
   /**
-   * 5xx 為 GitHub 端錯誤，自動重試兩次。
+   * 5xx 為 GitHub 端錯誤，自動重試（有 token 四次，沒有三次）。
    * 不送自訂 Accept header：實測超大倉庫（例如 3 萬個檔案）在瀏覽器帶 vnd.github+json 時
    * 會穩定拿到被快取的 500，不帶則正常。重試時加上時間戳，避開 CDN 快取住的錯誤回應。
    */
-  /** @param {{ onRetry?: (attempt: number, total: number) => void }} [opts] */
-  async function api(path, { onRetry } = {}) {
+  /**
+   * @param {string} path
+   * @param {{ onRetry?: (attempt: number, total: number) => void, maxAge?: number, refresh?: boolean }} [opts]
+   *   maxAge：允許使用多舊的本機快取（毫秒）；不給就不讀也不存快取
+   *   refresh：略過快取直接問 GitHub（結果仍會存起來）
+   */
+  async function api(path, { onRetry, maxAge, refresh = false } = {}) {
+    if (maxAge && !refresh) {
+      const cached = await readCached(API + path, maxAge);
+      if (cached) return cached;
+    }
     const headers = {};
     const token = store.get(KEYS.token, '');
     if (token) headers.Authorization = `Bearer ${token}`;
+    const delays = token ? RETRY_DELAYS : RETRY_DELAYS_NO_TOKEN;
     for (let attempt = 0; ; attempt += 1) {
       const sep = path.includes('?') ? '&' : '?';
       const url = attempt === 0 ? API + path : `${API}${path}${sep}_=${Date.now()}`;
@@ -104,10 +139,17 @@
         throw new Error(GF.i18n.t('err.network'));
       }
       readRate(res);
-      if (res.ok) return res.json();
-      if (res.status >= 500 && attempt < RETRY_DELAYS.length) {
-        if (onRetry) onRetry(attempt + 1, RETRY_DELAYS.length);
-        await wait(RETRY_DELAYS[attempt]);
+      if (res.ok) {
+        const text = await res.text();
+        const data = JSON.parse(text);
+        // 載入途中換了或清掉 token：這份內容可能是私人倉庫的，不能留下來
+        const sameToken = store.get(KEYS.token, '') === token;
+        if (maxAge && sameToken) await GF.apiCache.write(API + path, text);
+        return data;
+      }
+      if (res.status >= 500 && attempt < delays.length) {
+        if (onRetry) onRetry(attempt + 1, delays.length);
+        await wait(delays[attempt]);
         continue;
       }
       throw errorFor(res);
@@ -116,28 +158,64 @@
 
   const MAX_REF_GUESSES = 6;
 
-  const fetchTree = (base, ref, opts) => api(`${base}/git/trees/${encodeURIComponent(ref)}?recursive=1`, opts);
+  const treePath = (base, ref) => `${base}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
+  const treeAge = (ref) => (FULL_SHA_RE.test(ref) ? CACHE_AGE.immutable : CACHE_AGE.branchTree);
+
+  const fetchTree = (base, ref, opts) => api(treePath(base, ref), { ...opts, maxAge: treeAge(ref) });
+
+  /** 倉庫資訊只用來查預設分支，很少改變 */
+  const fetchDefaultBranch = async (base, { refresh = false } = {}) =>
+    (await api(base, { maxAge: CACHE_AGE.repoInfo, refresh })).default_branch;
+
+  /** refPath 可能的分支名稱，由短到長 */
+  function refCandidates(refPath) {
+    const parts = refPath.split('/');
+    const count = Math.min(parts.length, MAX_REF_GUESSES);
+    return Array.from({ length: count }, (_, i) => ({ ref: parts.slice(0, i + 1).join('/'), path: parts.slice(i + 1).join('/') }));
+  }
+
+  /** 先看本機快取有沒有哪個候選分支的檔案樹，有就不必再花請求去猜 */
+  async function cachedRef(base, candidates) {
+    for (const c of candidates) {
+      const tree = await readCached(API + treePath(base, c.ref), treeAge(c.ref));
+      if (tree) return { branch: c.ref, path: c.path, tree };
+    }
+    return null;
+  }
 
   /**
    * 把 refPath（例如 feature/icons/assets/logo）拆成分支與路徑：
    * 先比對預設分支，否則由短到長逐一嘗試，第一個存在的就是分支。
    */
   async function resolveRef(base, refPath, opts) {
-    const info = await api(base);
-    const def = info.default_branch;
+    const def = await fetchDefaultBranch(base);
     if (refPath === def || refPath.startsWith(`${def}/`)) {
       return { branch: def, path: refPath.slice(def.length + 1), tree: await fetchTree(base, def, opts) };
     }
-    const parts = refPath.split('/');
-    for (let i = 1; i <= Math.min(parts.length, MAX_REF_GUESSES); i += 1) {
-      const ref = parts.slice(0, i).join('/');
+    const candidates = refCandidates(refPath);
+    const cached = await cachedRef(base, candidates);
+    if (cached) return cached;
+    for (const { ref, path } of candidates) {
       try {
-        return { branch: ref, path: parts.slice(i).join('/'), tree: await fetchTree(base, ref, opts) };
+        return { branch: ref, path, tree: await fetchTree(base, ref, opts) };
       } catch (err) {
         if (err.status !== 404 && err.status !== 422) throw err;
       }
     }
     throw Object.assign(new Error(GF.i18n.t('err.notFound')), { status: 404 });
+  }
+
+  /** 記住的預設分支可能已經改名：抓不到時重新查一次預設分支 */
+  async function fetchDefaultTree(base, path, opts) {
+    const def = await fetchDefaultBranch(base);
+    try {
+      return { branch: def, path, tree: await fetchTree(base, def, opts) };
+    } catch (err) {
+      if (err.status !== 404) throw err;
+      const fresh = await fetchDefaultBranch(base, { refresh: true });
+      if (fresh === def) throw err;
+      return { branch: fresh, path, tree: await fetchTree(base, fresh, opts) };
+    }
   }
 
   /** @returns {Promise<{ branch: string, path: string, entries: object[], truncated: boolean }>} */
@@ -146,10 +224,7 @@
     let result;
     if (branch) result = { branch, path, tree: await fetchTree(base, branch, opts) };
     else if (refPath) result = await resolveRef(base, refPath, opts);
-    else {
-      const def = (await api(base)).default_branch;
-      result = { branch: def, path, tree: await fetchTree(base, def, opts) };
-    }
+    else result = await fetchDefaultTree(base, path, opts);
     return {
       branch: result.branch,
       path: result.path,
@@ -222,7 +297,8 @@
     const pages = [];
     let truncated = false;
     for (let page = 1; page <= MAX_COMMIT_PAGES; page += 1) {
-      const data = await api(`${base}?per_page=${COMMIT_PAGE_SIZE}&page=${page}`, opts);
+      // commit 的內容不會變（短 sha 也一樣指向同一個 commit）
+      const data = await api(`${base}?per_page=${COMMIT_PAGE_SIZE}&page=${page}`, { ...opts, maxAge: CACHE_AGE.immutable });
       pages.push(data);
       const count = Array.isArray(data.files) ? data.files.length : 0;
       if (count < COMMIT_PAGE_SIZE) break;

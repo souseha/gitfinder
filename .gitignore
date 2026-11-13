@@ -13,3 +13,6 @@ wrangler.jsonc
 coverage/
 test-results/
 playwright-report/
+
+# 本機待辦筆記，不進版控
+docs/todo/

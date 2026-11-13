@@ -14,4 +14,4 @@ export function loadScripts(...names) {
 }
 
 /** 依序載入核心模組（不含需要完整頁面 DOM 的 app / events） */
-export const loadCore = () => loadScripts('i18n', 'util', 'github', 'tree', 'virtual');
+export const loadCore = () => loadScripts('i18n', 'util', 'apicache', 'github', 'tree', 'virtual');

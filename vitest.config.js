@@ -6,7 +6,7 @@ export default defineConfig({
     include: ['tests/unit/**/*.test.js'],
     coverage: {
       provider: 'v8',
-      include: ['js/i18n.js', 'js/util.js', 'js/github.js', 'js/tree.js', 'js/virtual.js', 'js/download.js', 'js/zoom.js'],
+      include: ['js/i18n.js', 'js/util.js', 'js/apicache.js', 'js/github.js', 'js/tree.js', 'js/virtual.js', 'js/download.js', 'js/zoom.js'],
       reporter: ['text-summary', 'text'],
     },
   },

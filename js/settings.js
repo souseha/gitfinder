@@ -57,10 +57,11 @@
     el.tokenClear.hidden = !hasToken;
   }
 
-  function saveToken() {
+  async function saveToken() {
     const token = el.token.value.trim();
     if (!token) return;
     store.set(KEYS.token, token);
+    await GF.apiCache.clear();
     el.token.value = '';
     renderTokenStatus();
     A.toast(t('toast.tokenSaved'));
@@ -74,9 +75,10 @@
     saveToken();
   });
 
-  el.tokenClear.addEventListener('click', () => {
+  el.tokenClear.addEventListener('click', async () => {
     el.token.value = '';
     store.remove(KEYS.token);
+    await GF.apiCache.clear();
     renderTokenStatus();
     A.toast(t('toast.tokenCleared'));
   });

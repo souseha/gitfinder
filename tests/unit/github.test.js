@@ -151,7 +151,7 @@ describe('fetchRepo', () => {
     const pending = gh.fetchRepo({ owner: 'o', name: 'r', branch: 'main' }, { onRetry });
     await vi.runAllTimersAsync();
     await expect(pending).resolves.toMatchObject({ branch: 'main' });
-    expect(onRetry.mock.calls).toEqual([[1, 4], [2, 4]]);
+    expect(onRetry.mock.calls).toEqual([[1, 3], [2, 3]]);
   });
 
   it('gives up after the last retry', async () => {

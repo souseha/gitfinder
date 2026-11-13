@@ -73,3 +73,10 @@ describe('welcome page mentions commits', () => {
     expect(html).toContain(`data-example="${EXAMPLE_COMMIT}"`);
   });
 });
+
+describe('pure renames', () => {
+  it('shows one thumbnail when a renamed image did not change', () => {
+    const { byPath } = T.buildTree([{ path: 'new/x.png', type: 'blob', size: null, change: { status: 'renamed', previousPath: 'old/x.png', contentChanged: false } }]);
+    expect(V.iconItem(commitRepo(), byPath.get('new/x.png'), false)).not.toContain('thumb-pair');
+  });
+});

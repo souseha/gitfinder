@@ -254,3 +254,17 @@ test('the repository icon in the path bar is centered with its text', async ({ p
   const middle = (b) => b.y + b.height / 2;
   expect(Math.abs(middle(icon) - middle(text))).toBeLessThanOrEqual(1);
 });
+
+test('a pure rename shows one image and where it was renamed from', async ({ page }) => {
+  await page.route(`https://api.github.com/repos/demo/assets/commits/${COMMIT_SHA}**`, (route) => route.fulfill({
+    json: {
+      sha: COMMIT_SHA, parents: [{ sha: PARENT_SHA }], commit: { message: COMMIT_MESSAGE },
+      files: [{ filename: 'ui/b.png', status: 'renamed', previous_filename: 'ui/a.png', changes: 0 }],
+    },
+  }));
+  await openCommit(page, 'ui');
+  await expect(item(page, 'ui/b.png').locator('.thumb-pair')).toHaveCount(0);
+  await quickLook(page, 'ui/b.png');
+  await expect(page.locator('.ql-compare')).toHaveCount(0);
+  await expect(page.locator('#ql-meta')).toContainText('Renamed from ui/a.png');
+});

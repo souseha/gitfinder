@@ -63,6 +63,8 @@
     const parts = [kindOf(node)];
     if (node.type === 'file') parts.push(formatSize(node.size));
     if (extra) parts.push(extra);
+    const change = node.change;
+    if (change && change.status === 'renamed' && change.previousPath) parts.push(t('ql.renamedFrom', { path: change.previousPath }));
     if (ctx.list.length > 1) parts.push(`${ctx.index + 1} / ${ctx.list.length}`);
     return parts.join(' · ');
   }

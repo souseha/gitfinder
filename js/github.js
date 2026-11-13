@@ -169,15 +169,18 @@
   function toEntry(file) {
     const status = STATUS_MAP[file.status];
     if (!status || !file.filename) return null;
-    return { path: file.filename, type: 'blob', size: null, change: { status, previousPath: file.previous_filename || null } };
+    // 改名時 changes > 0 表示內容也改了；圖片等二進位檔 GitHub 一律回 0，只能視為純改名
+    const contentChanged = status === 'renamed' ? { contentChanged: (file.changes || 0) > 0 } : {};
+    return { path: file.filename, type: 'blob', size: null, change: { status, previousPath: file.previous_filename || null, ...contentChanged } };
   }
 
   /**
    * 抓一個 commit 變動的檔案（逐頁抓到不滿一頁或滿 10 頁為止）
    * @returns {Promise<{ sha: string, parentSha: string|null, message: string, entries: object[], truncated: boolean }>}
    */
+  /** 比對檔案樹得到的改名，判定條件就是內容（blob）相同，所以一定是純改名 */
   const changeEntry = (path, status, size = null, previousPath = null) => ({
-    path, type: 'blob', size, change: { status, previousPath },
+    path, type: 'blob', size, change: { status, previousPath, ...(status === 'renamed' && { contentChanged: false }) },
   });
 
   /**
@@ -255,6 +258,8 @@
     const change = node && node.change;
     const parent = repo.commit && repo.commit.parentSha;
     if (!change || !parent || (change.status !== 'modified' && change.status !== 'renamed')) return null;
+    // 純改名的前後內容一樣，沒有東西可以比較
+    if (change.status === 'renamed' && !change.contentChanged) return null;
     return rawAt(repo, parent, change.previousPath || node.path);
   }
 

@@ -43,13 +43,14 @@ export const NEXT_COMMIT_MESSAGE = 'feat: more assets';
 export const PARENT_SHA = 'e'.repeat(40);
 export const COMMIT_MESSAGE = 'feat: assets update';
 export const COMMIT_README = '# Readme at the commit';
-const changed = (filename, status, previous_filename) => ({ filename, status, ...(previous_filename && { previous_filename }) });
+const changed = (filename, status, previous_filename, changes = 0) => ({ filename, status, changes, ...(previous_filename && { previous_filename }) });
 export const COMMIT_FILES = [
   changed('spine/char/new1.png', 'added'),
   changed('spine/char/new2.png', 'added'),
   changed('spine/char/old.png', 'removed'),
   changed('spine/char/mod.png', 'modified'),
-  changed('ui/b.png', 'renamed', 'ui/a.png'),
+  // 改名而且內容也變了（changes > 0），前後並排比較
+  changed('ui/b.png', 'renamed', 'ui/a.png', 1),
   changed('docs/readme.md', 'modified'),
 ];
 

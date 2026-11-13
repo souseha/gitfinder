@@ -220,14 +220,16 @@ describe('fetchCommit', () => {
   const body = (files, parents = [{ sha: P }]) => json({ sha: F, parents, commit: { message: 'feat: x\n\nbody' }, files });
   it('pages until a short page and normalizes statuses', async () => {
     const page1 = Array.from({ length: 300 }, (_, i) => file(`img/${i}.png`, 'added'));
-    const page2 = [file('a.png', 'removed'), file('b.png', 'renamed', 'old/b.png'), file('c.png', 'copied'), file('d.txt', 'changed'), file('e', 'unchanged')];
+    const page2 = [file('a.png', 'removed'), file('b.png', 'renamed', 'old/b.png'), file('c.png', 'copied'), file('d.txt', 'changed'), file('e', 'unchanged'),
+      { ...file('f.md', 'renamed', 'old/f.md'), changes: 4 }];
     const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(body(page1)).mockResolvedValueOnce(body(page2));
     const res = await gh.fetchCommit({ owner: 'a', name: 'b', commit: 'fff1234' });
     expect(spy.mock.calls[0][0]).toContain('/repos/a/b/commits/fff1234?per_page=300&page=1');
     expect(spy).toHaveBeenCalledTimes(2);
     expect(res).toMatchObject({ sha: F, parentSha: P, message: 'feat: x\n\nbody', truncated: false });
-    expect(res.entries).toHaveLength(304); // unchanged 被略過
-    expect(res.entries.find((e) => e.path === 'b.png').change).toEqual({ status: 'renamed', previousPath: 'old/b.png' });
+    expect(res.entries).toHaveLength(305); // unchanged 被略過
+    expect(res.entries.find((e) => e.path === 'b.png').change).toEqual({ status: 'renamed', previousPath: 'old/b.png', contentChanged: false });
+    expect(res.entries.find((e) => e.path === 'f.md').change).toEqual({ status: 'renamed', previousPath: 'old/f.md', contentChanged: true });
     expect(res.entries.find((e) => e.path === 'c.png').change.status).toBe('added');
     expect(res.entries.find((e) => e.path === 'd.txt').change.status).toBe('modified');
   });
@@ -254,7 +256,9 @@ describe('fileUrl / previousUrl', () => {
   });
   it('gives the previous version for modified and renamed files', () => {
     expect(gh.previousUrl(repo, node('x.png', 'modified'))).toBe(raw(P, 'x.png'));
-    expect(gh.previousUrl(repo, node('new/x.png', 'renamed', 'old/x.png'))).toBe(raw(P, 'old/x.png'));
+    expect(gh.previousUrl(repo, { ...node('new/x.png', 'renamed', 'old/x.png'), change: { status: 'renamed', previousPath: 'old/x.png', contentChanged: true } })).toBe(raw(P, 'old/x.png'));
+    // 純改名（內容沒變）沒有東西可比
+    expect(gh.previousUrl(repo, { ...node('new/x.png', 'renamed', 'old/x.png'), change: { status: 'renamed', previousPath: 'old/x.png', contentChanged: false } })).toBeNull();
     expect(gh.previousUrl(repo, node('x.png', 'added'))).toBeNull();
     expect(gh.previousUrl({ ...repo, commit: { ...repo.commit, parentSha: null } }, node('x.png', 'modified'))).toBeNull();
   });
@@ -313,7 +317,7 @@ describe('fetchCommit when GitHub cannot compute the diff', () => {
       'img/new.png': { status: 'added', previousPath: null },
       'img/gone.png': { status: 'removed', previousPath: null },
       'img/changed.png': { status: 'modified', previousPath: null },
-      'moved/x.png': { status: 'renamed', previousPath: 'old/x.png' },
+      'moved/x.png': { status: 'renamed', previousPath: 'old/x.png', contentChanged: false },
     });
     expect(res).toMatchObject({ sha: F, parentSha: P, message: 'huge update', truncated: false });
     expect(spy.mock.calls.some(([u]) => String(u).includes(`/git/trees/${P}?recursive=1`))).toBe(true);

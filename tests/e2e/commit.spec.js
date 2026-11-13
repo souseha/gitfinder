@@ -220,3 +220,13 @@ test('closing overview returns to the folder you were in', async ({ page }) => {
   await expect(page.locator('.icon-item')).toHaveCount(4);
   await expect(page.locator('#btn-back')).toBeEnabled();
 });
+
+test('the commit sha links to the commit on GitHub', async ({ page }) => {
+  await openCommit(page);
+  const link = page.locator('#commit-bar a.commit-sha');
+  await expect(link).toHaveText(COMMIT_SHA.slice(0, 7));
+  await expect(link).toHaveAttribute('href', `https://github.com/demo/assets/commit/${COMMIT_SHA}`);
+  await expect(link).toHaveAttribute('target', '_blank');
+  await expect(link).toHaveAttribute('rel', /noopener/);
+  await expect(link).toHaveAttribute('aria-label', 'Open this commit on GitHub');
+});

@@ -46,7 +46,8 @@
     bar.innerHTML =
       scopeSwitch(!!state.overview) +
       '<span class="commit-divider" aria-hidden="true"></span>' +
-      `<span class="commit-sha">${esc(shortSha(commit.sha))}</span>` +
+      `<a class="commit-sha" href="${esc(GF.github.webUrl(state.repo, null))}" target="_blank" rel="noopener noreferrer" ` +
+      `data-tip="${esc(t('commit.openGh'))}" aria-label="${esc(t('commit.openGh'))}">${esc(shortSha(commit.sha))}</a>` +
       `<span class="commit-msg" title="${esc(commit.message)}">${esc(firstLine(commit.message))}</span>` +
       `<span class="commit-filters" role="group">${FILTERS.map((k) => filterButton(k, counts, state.changeFilter)).join('')}</span>`;
   }

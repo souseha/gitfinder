@@ -124,8 +124,11 @@
   const repoIcon = () =>
     '<svg class="ri-svg" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.71 1.71.75.75 0 0 1-1.06 1.06A2.49 2.49 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.71A2.49 2.49 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.09a.25.25 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z"/></svg>';
 
+  /** 最近清單的 key：每個倉庫一筆一般瀏覽，加上一筆「最近看的 commit」（新的 commit 取代舊的） */
+  const recentKey = (r) => `${r.owner}/${r.name}`.toLowerCase() + (r.commit ? '#commit' : '');
+
   GF.util = Object.freeze({
-    IMG_EXT, KEYS, extOf, isImage, isText, formatSize, kindOf, esc, store, debounce,
+    IMG_EXT, KEYS, recentKey, extOf, isImage, isText, formatSize, kindOf, esc, store, debounce,
     folderIcon, fileIcon, repoIcon, logoIcon, IS_MAC, MOD_LABEL,
   });
 })((window.GF = window.GF || {}));

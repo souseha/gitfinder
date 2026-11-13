@@ -26,6 +26,10 @@
   --logo-tile: #f7f7f8;
   --logo-border: #b4b4ba;
   --logo-glyph: #1c1c1e;
+  --chg-added: #1f7a34; --chg-added-bg: #dcf3e1;
+  --chg-removed: #b4232c; --chg-removed-bg: #fbe1e2;
+  --chg-renamed: #8a5a00; --chg-renamed-bg: #fbedcc;
+  --chg-modified: #0b5cc9; --chg-modified-bg: #dde9fb;
   color-scheme: light;
 }
 
@@ -56,6 +60,10 @@
     --logo-tile: #1c1c1e;
     --logo-border: #48484c;
     --logo-glyph: #ffffff;
+    --chg-added: #7ddf94; --chg-added-bg: #1d3a25;
+    --chg-removed: #ff8a90; --chg-removed-bg: #46201f;
+    --chg-renamed: #f2c35b; --chg-renamed-bg: #43341a;
+    --chg-modified: #8ab8ff; --chg-modified-bg: #1d2f4d;
     color-scheme: dark;
   }
 }
@@ -85,6 +93,10 @@
   --logo-border: #48484c;
   --logo-glyph: #ffffff;
   color-scheme: dark;
+  --chg-added: #7ddf94; --chg-added-bg: #1d3a25;
+  --chg-removed: #ff8a90; --chg-removed-bg: #46201f;
+  --chg-renamed: #f2c35b; --chg-renamed-bg: #43341a;
+  --chg-modified: #8ab8ff; --chg-modified-bg: #1d2f4d;
 }
 
 /* ===== 基礎 ===== */
@@ -144,15 +156,34 @@ kbd {
 .ri-name, .ri-owner { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ri-owner { font-size: 11px; color: var(--muted); }
 .ri-remove {
+  display: grid; place-items: center; padding: 0;
   border: 0; background: none; width: 18px; height: 18px; border-radius: 50%;
-  color: var(--muted); cursor: pointer; opacity: 0; flex: none; line-height: 1;
+  color: var(--muted); cursor: pointer; opacity: 0; flex: none;
 }
+.ri-remove svg { width: 10px; height: 10px; }
 .repo-item:hover .ri-remove { opacity: 1; }
 .ri-remove:hover { background: var(--hover); color: var(--text); }
 .repo-empty { color: var(--muted); padding: 4px 8px; font-size: 12px; }
-.side-footer { display: flex; flex-direction: column; gap: 2px; padding: 0 8px; }
+.side-footer { display: flex; align-items: center; gap: 4px; padding: 0 4px; }
+.side-footer .spacer { flex: 1; }
+.foot-btn {
+  width: 28px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 6px;
+  background: none; color: var(--muted); cursor: pointer; text-decoration: none;
+}
+.foot-btn:hover { background: var(--hover); color: var(--text); }
+.foot-btn svg { width: 16px; height: 16px; }
+.rate-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 999px;
+  border: 1px solid var(--border); background: none; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.rate-chip:hover { color: var(--text); background: var(--hover); }
+.rate-chip.hidden { display: none; }
+.rate-bar { width: 26px; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.rate-bar i { display: block; height: 100%; background: var(--chg-added); }
+.rate-chip.low { color: var(--chg-renamed); border-color: var(--chg-renamed); }
+.rate-chip.low .rate-bar i { background: var(--chg-renamed); }
 .link-btn { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; text-align: left; font-size: 12px; }
-.rate { font-size: 11px; color: var(--muted); }
 
 /* ===== 主區域與工具列 ===== */
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); position: relative; }
@@ -355,6 +386,8 @@ kbd {
 .examples { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; align-items: center; color: var(--muted); font-size: 12px; }
 .examples button { border: 1px solid var(--border); background: none; border-radius: 99px; padding: 2px 10px; cursor: pointer; font-size: 12px; }
 .examples button:hover { background: var(--hover); }
+.examples .example-commit { border-style: dashed; }
+.welcome-sub { font-size: 12.5px; color: var(--muted); }
 .hints { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; color: var(--muted); font-size: 12px; margin-top: 10px; }
 .spinner {
   width: 26px; height: 26px; border-radius: 50%;
@@ -551,12 +584,6 @@ body.ql-open { overflow: hidden; }
 body.dragging { user-select: none; -webkit-user-select: none; cursor: default; }
 
 /* ===== 設定 ===== */
-.settings-btn {
-  display: flex; align-items: center; gap: 6px; border: 0; background: none; padding: 4px 0;
-  color: var(--text); cursor: pointer; font-size: 12.5px;
-}
-.settings-btn svg { width: 16px; height: 16px; color: var(--muted); }
-.settings-btn:hover svg { color: var(--text); }
 .set-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; }
 .set-label { font-size: 13px; }
 .seg-text button { width: auto; padding: 0 12px; font-size: 12px; color: var(--text); }
@@ -587,12 +614,6 @@ body.dragging { user-select: none; -webkit-user-select: none; cursor: default; }
 .bi-cut { stroke: var(--logo-tile); }
 
 /* ===== 原始碼連結 ===== */
-.source-link {
-  display: flex; align-items: center; gap: 6px; padding: 4px 0; width: fit-content;
-  color: var(--muted); font-size: 12px; text-decoration: none;
-}
-.source-link svg { width: 16px; height: 16px; }
-.source-link:hover { color: var(--text); }
 .welcome-foot { margin-top: 18px; font-size: 12px; color: var(--muted); }
 .welcome-foot a { color: var(--muted); }
 .welcome-foot a:hover { color: var(--text); }
@@ -606,3 +627,70 @@ body.dragging { user-select: none; -webkit-user-select: none; cursor: default; }
 }
 .repo-item.drop-before::before { top: -1px; }
 .repo-item.drop-after::after { bottom: -1px; }
+
+/* commit 檢視：狀態標籤 */
+.chg {
+  display: inline-block; font-size: 10px; line-height: 1.5; padding: 0 5px; border-radius: 4px;
+  font-weight: 500; white-space: nowrap; margin-left: 6px; flex-shrink: 0;
+}
+.chg-added { color: var(--chg-added); background: var(--chg-added-bg); }
+.chg-removed { color: var(--chg-removed); background: var(--chg-removed-bg); }
+.chg-renamed { color: var(--chg-renamed); background: var(--chg-renamed-bg); }
+.chg-modified { color: var(--chg-modified); background: var(--chg-modified-bg); }
+.chg-count { font-size: 10.5px; color: var(--chg-added); margin-left: 6px; flex-shrink: 0; }
+.icon-item .thumb { position: relative; }
+.icon-item .thumb .chg { position: absolute; top: 4px; right: 4px; margin: 0; }
+.icon-item .thumb .chg-count { position: absolute; bottom: 4px; right: 6px; margin: 0; }
+.is-removed .thumb img, .is-removed .mini img { opacity: 0.45; }
+
+/* commit 資訊列 */
+.commit-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 6px 14px; border-bottom: 1px solid var(--border); background: var(--toolbar); font-size: 12px;
+}
+.commit-bar.hidden { display: none; }
+.commit-sha { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+.commit-msg { flex: 1 1 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commit-filters { display: flex; gap: 4px; flex-wrap: wrap; }
+.chg-filter {
+  font: inherit; font-size: 11.5px; padding: 2px 9px; border-radius: 6px; border: 1px solid var(--border);
+  background: transparent; color: var(--text); cursor: pointer;
+}
+.chg-filter .n { color: var(--muted); margin-left: 2px; }
+.chg-filter:hover:not(:disabled) { background: var(--hover); }
+.chg-filter:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chg-filter:disabled { opacity: 0.4; cursor: default; }
+.chg-filter.on { background: var(--sel-soft); border-color: transparent; }
+.chg-filter-added.on { background: var(--chg-added-bg); color: var(--chg-added); }
+.chg-filter-removed.on { background: var(--chg-removed-bg); color: var(--chg-removed); }
+.chg-filter-renamed.on { background: var(--chg-renamed-bg); color: var(--chg-renamed); }
+.chg-filter-modified.on { background: var(--chg-modified-bg); color: var(--chg-modified); }
+.chg-filter.on .n { color: inherit; }
+
+/* Quick Look：commit 修改前後並排 */
+.ql-compare { display: flex; gap: 16px; width: 100%; height: 100%; align-items: stretch; justify-content: center; }
+.ql-compare figure { flex: 1 1 0; min-width: 0; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+.ql-compare .ql-img { flex: 0 1 auto; min-height: 0; max-width: 100%; max-height: calc(100% - 28px); cursor: default; }
+.ql-compare figcaption { font-size: 12px; color: var(--muted); }
+
+/* commit 檢視：修改的圖在格子裡左右各半顯示前後兩版 */
+.icon-item .thumb.thumb-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; padding: 4px; }
+.icon-item .thumb.thumb-pair img { width: 100%; height: 100%; max-width: none; max-height: none; object-fit: contain; min-width: 0; }
+.icon-item .thumb.thumb-pair img[data-side="before"] { border-right: 1px solid var(--border); }
+
+/* commit 檢視範圍：依資料夾 ｜ 全部攤平（沿用工具列 .seg 的外觀，改成文字按鈕） */
+.commit-scope button { height: 22px; padding: 0 10px; font-size: 11.5px; }
+.commit-divider { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; }
+
+/* 設定：分區標題與 Token 狀態列 */
+.set-section { margin: 14px 0 2px; font-size: 11px; color: var(--muted); letter-spacing: 0.02em; }
+.dialog h3 + .set-section { margin-top: 6px; }
+.token-status {
+  display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; padding: 8px 10px;
+  border-radius: 8px; background: var(--input-bg); font-size: 12.5px;
+}
+.token-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--chg-renamed); flex: none; }
+.token-status.is-set .token-dot { background: var(--chg-added); }
+.token-status-text { flex: 1; }
+.token-left { color: var(--muted); font-variant-numeric: tabular-nums; }
+.token-row { margin: 8px 0 6px; }

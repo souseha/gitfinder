@@ -39,15 +39,15 @@
       <ul class="repo-list" id="repo-list"></ul>
     </div>
     <div class="side-footer">
-      <button id="btn-settings" class="settings-btn" type="button">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-        <span data-i18n="sidebar.settings"></span>
+      <button id="btn-settings" class="foot-btn" type="button" data-i18n-tip="sidebar.settings">
+        <!-- gear icon: Lucide "settings" (ISC License) -->
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
       </button>
-      <a class="source-link" href="https://github.com/souseha/gitfinder" target="_blank" rel="noopener noreferrer" data-i18n-tip="source.tip">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 6 3 10l4 4M13 6l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span data-i18n="source.label"></span>
+      <span class="spacer"></span>
+      <button id="rate" class="rate-chip hidden" type="button"></button>
+      <a class="foot-btn source-link" href="https://github.com/souseha/gitfinder" target="_blank" rel="noopener noreferrer" data-i18n-tip="source.tip">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>
       </a>
-      <span id="rate" class="rate"></span>
     </div>
   </aside>
 
@@ -86,6 +86,7 @@
         <input id="search" type="search" data-i18n-ph="tb.searchPh" spellcheck="false" autocomplete="off">
       </label>
     </header>
+    <div class="commit-bar hidden" id="commit-bar"></div>
     <div class="progress" aria-hidden="true"></div>
     <section class="content" id="content" tabindex="0"></section>
     <footer class="pathbar">
@@ -124,6 +125,7 @@
 <dialog id="settings" class="dialog">
   <form method="dialog">
     <h3 data-i18n="settings.title"></h3>
+    <div class="set-section" data-i18n="settings.display"></div>
     <div class="set-row">
       <span class="set-label" data-i18n="settings.theme"></span>
       <div class="seg seg-text" id="theme-seg">
@@ -136,18 +138,21 @@
       <label class="set-label" for="lang-select" data-i18n="settings.language"></label>
       <select id="lang-select"></select>
     </div>
-    <hr>
-    <h4>GitHub Token</h4>
-    <p data-i18n-html="token.desc"></p>
-    <p class="note" data-i18n="token.note"></p>
+    <div class="set-section" data-i18n="settings.access"></div>
+    <div class="token-status" id="token-status">
+      <span class="token-dot" aria-hidden="true"></span>
+      <span class="token-status-text" id="token-status-text"></span>
+      <span class="token-left" id="token-left"></span>
+    </div>
     <div class="token-row">
       <input id="token-input" type="password" data-i18n-ph="token.ph" autocomplete="off" spellcheck="false">
-      <button type="button" id="token-clear" class="danger" data-i18n="token.clear"></button>
+      <button type="button" id="token-save" data-i18n="common.save"></button>
+      <button type="button" id="token-clear" class="danger" data-i18n="token.clear" hidden></button>
     </div>
+    <p class="note" data-i18n-html="token.help"></p>
     <menu>
       <span class="spacer"></span>
-      <button value="cancel" type="submit" data-i18n="common.cancel"></button>
-      <button value="save" type="submit" class="primary" data-i18n="common.save"></button>
+      <button value="done" type="submit" class="primary" data-i18n="common.done"></button>
     </menu>
   </form>
 </dialog>
@@ -170,6 +175,7 @@
 <script src="/js/views.js"></script>
 <script src="/js/download.js"></script>
 <script src="/js/quicklook.js"></script>
+<script src="/js/commit.js"></script>
 <script src="/js/app.js"></script>
 <script src="/js/actions.js"></script>
 <script src="/js/tooltip.js"></script>

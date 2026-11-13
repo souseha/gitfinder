@@ -2,7 +2,7 @@
 (function (GF) {
   'use strict';
 
-  const { rawUrl } = GF.github;
+  const { fileUrl } = GF.github;
   const { t } = GF.i18n;
 
   const FFLATE_URL = 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js';
@@ -58,7 +58,7 @@
 
   /** 跨網域的 <a download> 會被瀏覽器忽略，所以先抓成 Blob 再存檔 */
   async function downloadFile(repo, node) {
-    saveBlob(await fetchBlob(rawUrl(repo, node.path)), node.name);
+    saveBlob(await fetchBlob(fileUrl(repo, node)), node.name);
   }
 
   /** 選取項目的檔案與 zip 內路徑：資料夾保留「資料夾名/子路徑」，同名檔案自動加編號 */
@@ -116,7 +116,7 @@
         next += 1;
         const { file, name } = entries[index];
         try {
-          const blob = await fetchBlob(rawUrl(repo, file.path), signal);
+          const blob = await fetchBlob(fileUrl(repo, file), signal);
           results[index] = [name, new Uint8Array(await blob.arrayBuffer())];
         } catch (err) {
           if (signal.aborted) throw err;

@@ -16,6 +16,13 @@
 
   const OWNER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/;
   const NAME_RE = /^[A-Za-z0-9._-]+$/;
+  const SHA_RE = /^[0-9a-f]{7,40}$/i;
+
+  /** commit/<sha>：sha 可帶 GitHub 的 .patch / .diff 結尾；不是 sha 就回傳 null */
+  function commitSha(segment) {
+    const sha = String(segment || '').replace(/\.(patch|diff)$/i, '');
+    return SHA_RE.test(sha) ? sha.toLowerCase() : null;
+  }
 
   /**
    * 解析 GitHub 風格的路徑片段：owner/repo[/tree|blob/<ref 與路徑>]。
@@ -29,6 +36,8 @@
     const [owner, rawName, kind, ...rest] = parts;
     const name = rawName.replace(/\.git$/i, '');
     if (!OWNER_RE.test(owner) || !NAME_RE.test(name)) return null;
+    const commit = kind === 'commit' ? commitSha(rest[0]) : null;
+    if (commit) return { owner, name, branch: null, path: rest.slice(1).join('/'), refPath: '', commit };
     const deep = (kind === 'tree' || kind === 'blob') && rest.length > 0;
     return { owner, name, branch: null, path: '', refPath: deep ? rest.join('/') : '' };
   }
@@ -149,10 +158,66 @@
     };
   }
 
+  /* ---------- 單一 commit ---------- */
+  const COMMIT_PAGE_SIZE = 300; // GitHub 每頁最多 300 個檔案
+  const MAX_COMMIT_PAGES = 10; // 最多 3000 個檔案
+  /** GitHub 的狀態收斂成四種；unchanged 不列入 */
+  const STATUS_MAP = Object.freeze({
+    added: 'added', copied: 'added', removed: 'removed', renamed: 'renamed', modified: 'modified', changed: 'modified',
+  });
+
+  function toEntry(file) {
+    const status = STATUS_MAP[file.status];
+    if (!status || !file.filename) return null;
+    return { path: file.filename, type: 'blob', size: null, change: { status, previousPath: file.previous_filename || null } };
+  }
+
+  /**
+   * 抓一個 commit 變動的檔案（逐頁抓到不滿一頁或滿 10 頁為止）
+   * @returns {Promise<{ sha: string, parentSha: string|null, message: string, entries: object[], truncated: boolean }>}
+   */
+  async function fetchCommit({ owner, name, commit }, opts = {}) {
+    const base = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/commits/${encodeURIComponent(commit)}`;
+    const pages = [];
+    let truncated = false;
+    for (let page = 1; page <= MAX_COMMIT_PAGES; page += 1) {
+      const data = await api(`${base}?per_page=${COMMIT_PAGE_SIZE}&page=${page}`, opts);
+      pages.push(data);
+      const count = Array.isArray(data.files) ? data.files.length : 0;
+      if (count < COMMIT_PAGE_SIZE) break;
+      truncated = page === MAX_COMMIT_PAGES;
+    }
+    const first = pages[0];
+    const parents = Array.isArray(first.parents) ? first.parents : [];
+    return {
+      sha: first.sha,
+      parentSha: parents.length ? parents[0].sha : null,
+      message: (first.commit && first.commit.message) || '',
+      entries: pages.flatMap((p) => (Array.isArray(p.files) ? p.files : [])).map(toEntry).filter(Boolean),
+      truncated,
+    };
+  }
+
   const encPath = (p) => p.split('/').map(encodeURIComponent).join('/');
 
-  const rawUrl = (repo, path) =>
-    `https://raw.githubusercontent.com/${encPath(repo.owner)}/${encPath(repo.name)}/${encPath(repo.branch)}/${encPath(path)}`;
+  const rawAt = (repo, ref, path) =>
+    `https://raw.githubusercontent.com/${encPath(repo.owner)}/${encPath(repo.name)}/${encPath(ref)}/${encPath(path)}`;
+
+  const rawUrl = (repo, path) => rawAt(repo, repo.branch, path);
+
+  /** 節點所在的版本：commit 裡被刪除的檔案只存在於上一個版本 */
+  const refFor = (repo, node) =>
+    node && node.change && node.change.status === 'removed' && repo.commit ? repo.commit.parentSha : repo.branch;
+
+  const fileUrl = (repo, node) => rawAt(repo, refFor(repo, node), node.path);
+
+  /** 修改 / 改名的檔案在上一個版本的原檔網址；沒有前一版時回傳 null */
+  function previousUrl(repo, node) {
+    const change = node && node.change;
+    const parent = repo.commit && repo.commit.parentSha;
+    if (!change || !parent || (change.status !== 'modified' && change.status !== 'renamed')) return null;
+    return rawAt(repo, parent, change.previousPath || node.path);
+  }
 
   const THUMB_PROXY = 'https://wsrv.nl/';
   const SMALL_IMAGE_BYTES = 20 * 1024;
@@ -163,27 +228,37 @@
    * SVG / ICO 與 20 KB 以下的小圖直接用原圖（代理反而多繞一趟）。
    * @param {number} size 縮圖最長邊（像素，已含 2x 高解析度）
    */
-  function thumbUrl(repo, node, size) {
-    const raw = rawUrl(repo, node.path);
+  function proxyThumb(raw, node, size) {
     if (NO_PROXY_EXT.has(node.ext) || (node.size != null && node.size <= SMALL_IMAGE_BYTES)) return raw;
     const params = new URLSearchParams({ url: raw, w: String(size), h: String(size), fit: 'inside', output: 'webp' });
     if (node.ext === 'gif') params.set('n', '-1'); // 保留 GIF 動畫
     return `${THUMB_PROXY}?${params}&we`;
   }
 
+  const thumbUrl = (repo, node, size) => proxyThumb(fileUrl(repo, node), node, size);
+
+  /** 修改 / 改名的圖在上一個版本的縮圖；沒有前一版時回傳 null */
+  function previousThumbUrl(repo, node, size) {
+    const raw = previousUrl(repo, node);
+    return raw ? proxyThumb(raw, node, size) : null;
+  }
+
   /** App 內的網址，與 GitHub 相同的結構：/owner/repo/tree/<branch>/<path> */
   function routeUrl(repo, path) {
     const base = `/${encPath(repo.owner)}/${encPath(repo.name)}`;
+    if (repo.commit) return `${base}/commit/${encPath(repo.commit.sha)}${path ? `/${encPath(path)}` : ''}`;
     if (!repo.branch) return base;
     return `${base}/tree/${encPath(repo.branch)}${path ? `/${encPath(path)}` : ''}`;
   }
 
   function webUrl(repo, node) {
     const base = `https://github.com/${encPath(repo.owner)}/${encPath(repo.name)}`;
-    if (!node || !node.path) return `${base}/tree/${encPath(repo.branch)}`;
+    if (!node || !node.path) return repo.commit ? `${base}/commit/${encPath(repo.commit.sha)}` : `${base}/tree/${encPath(repo.branch)}`;
     const kind = node.type === 'dir' ? 'tree' : 'blob';
-    return `${base}/${kind}/${encPath(repo.branch)}/${encPath(node.path)}`;
+    return `${base}/${kind}/${encPath(refFor(repo, node))}/${encPath(node.path)}`;
   }
 
-  GF.github = Object.freeze({ parseRepoInput, parseRoute, routeUrl, fetchRepo, rawUrl, thumbUrl, webUrl, getRate: () => rate });
+  GF.github = Object.freeze({
+    parseRepoInput, parseRoute, routeUrl, fetchRepo, fetchCommit, rawUrl, fileUrl, previousUrl, thumbUrl, previousThumbUrl, webUrl, getRate: () => rate,
+  });
 })(window.GF);

@@ -3,7 +3,7 @@
   'use strict';
 
   const { formatSize } = GF.util;
-  const { rawUrl, webUrl } = GF.github;
+  const { fileUrl, webUrl } = GF.github;
   const { t } = GF.i18n;
   const D = GF.download;
   const A = GF.app;
@@ -77,7 +77,7 @@
 
   const copyNames = (nodes) => nodes.length && copyText(nodes.map((n) => n.name || A.state.repo.name).join('\n'));
   const copyPaths = (nodes) => nodes.length && copyText(nodes.map((n) => n.path || '/').join('\n'));
-  const copyRawLink = (node) => copyText(rawUrl(A.state.repo, node.path));
+  const copyRawLink = (node) => copyText(fileUrl(A.state.repo, node));
   const copyGhLink = (node) => copyText(webUrl(A.state.repo, node));
 
   /** 剪貼簿只接受 PNG：其他格式先畫到 canvas 轉檔 */
@@ -101,7 +101,7 @@
   async function copyImage(node) {
     try {
       // 傳 Promise 給 ClipboardItem，Safari 才會保留使用者手勢
-      const png = D.fetchBlob(rawUrl(A.state.repo, node.path)).then(toPng);
+      const png = D.fetchBlob(fileUrl(A.state.repo, node)).then(toPng);
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
       A.toast(t('toast.copiedImage'));
     } catch {

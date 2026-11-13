@@ -21,6 +21,7 @@ Paste a repository URL to get icon, list, and column views, search across the wh
 - **Quick Look**: press <kbd>Space</kbd> for a full-size preview, a thumbnail strip along the bottom, and arrow-key navigation. Text files open as plain text.
 - **Search**: search file names across the whole repository. Separate terms with spaces; a term containing `/` matches the full path.
 - **Images only**: hide everything except images and the folders that contain them.
+- **Commit view**: open a single commit to see only the files it changed, tagged added, removed, renamed, or modified. Filter by status (renamed files count as modified; "Added" + Images only shows the new images), see removed images from the previous version, and compare modified images side by side in Quick Look. Switch from **By folder** to **Flat** to flatten the whole commit into one grid, with each file's folder underneath and modified images shown before and after in the same tile.
 - **Multi-select**: <kbd>⌘</kbd>/<kbd>Ctrl</kbd>-click, <kbd>Shift</kbd>-click, <kbd>Shift</kbd>+arrows, <kbd>⌘</kbd><kbd>A</kbd>, and marquee selection by dragging on empty space (in every view).
 - **Downloads**: download a single file, or zip a folder or any selection right in the browser, keeping the folder structure.
 - **Context menus**: right-click files, folders, empty space, the path bar, the sidebar, or Quick Look to open, download, copy a name, path, image, or link, and more.
@@ -46,6 +47,7 @@ owner/repo
 https://github.com/owner/repo
 https://github.com/owner/repo/tree/branch/path/to/folder
 https://github.com/owner/repo/blob/branch/path/to/file.png
+https://github.com/owner/repo/commit/<sha>   (.patch and .diff links work too)
 ```
 
 App URLs mirror GitHub's, so you can swap the host on any GitHub link:

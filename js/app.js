@@ -2,7 +2,7 @@
 (function (GF) {
   'use strict';
 
-  const { store, KEYS, isImage, esc, debounce, fileIcon, repoIcon, folderIcon } = GF.util;
+  const { store, KEYS, isImage, esc, recentKey, debounce, fileIcon, repoIcon, folderIcon } = GF.util;
   const { t } = GF.i18n;
   const gh = GF.github;
   const T = GF.tree;
@@ -28,11 +28,13 @@
   let state = Object.freeze({
     repo: null, tree: null, truncated: false, cwd: null, selected: null, picked: EMPTY, anchor: null,
     view: VIEWS.includes(savedView) ? savedView : 'icon',
-    query: '', imagesOnly: false, expanded: EMPTY, back: [], fwd: [], loading: false,
+    query: '', imagesOnly: false, changeFilter: 'all', overview: false, overviewFrom: null, expanded: EMPTY, back: [], fwd: [], loading: false,
   });
 
   const treeCache = new Map();
   const repoKey = (r) => `${r.owner}/${r.name}`.toLowerCase();
+  /** commit 只含變動檔案，和同一個 sha 的整棵樹分開快取 */
+  const commitCacheKey = (r, sha) => `${repoKey(r)}#commit@${sha}`;
 
   /** 只給 selected 時，picked / anchor 自動跟著變成單選 */
   function normalize(patch) {
@@ -53,21 +55,41 @@
   }
 
   /* ---------- 衍生資料 ---------- */
-  const effectiveView = () => (state.query && state.view === 'column' ? 'list' : state.view);
+  /** commit 總覽：整個 commit 攤平成一張格子（只在 commit 模式有效） */
+  const isOverview = () => !!(state.overview && state.repo && state.repo.commit);
+
+  /** 搜尋時直欄改列表；總覽沒有資料夾結構，直欄改圖像 */
+  function effectiveView() {
+    if (state.view !== 'column') return state.view;
+    if (state.query) return 'list';
+    return isOverview() ? 'icon' : 'column';
+  }
+
+  /** commit 檢視的狀態篩選：檔案看自己的狀態，資料夾看底下有沒有這種狀態的檔案 */
+  /** 「修改」包含改名 */
+  const STATUSES_FOR = Object.freeze({ added: ['added'], removed: ['removed'], modified: ['modified', 'renamed'] });
+
+  function changeMatch(n) {
+    const statuses = STATUSES_FOR[state.changeFilter];
+    if (!statuses) return true;
+    if (n.type === 'dir') return !!n.changes && statuses.some((s) => n.changes[s] > 0);
+    return !!n.change && statuses.includes(n.change.status);
+  }
 
   function itemFilter() {
-    if (!state.imagesOnly) return () => true;
-    return (n) => (n.type === 'dir' ? n.stats.images > 0 : isImage(n));
+    const images = state.imagesOnly ? (n) => (n.type === 'dir' ? n.stats.images > 0 : isImage(n)) : () => true;
+    return (n) => images(n) && changeMatch(n);
   }
 
   function currentRows() {
     if (!state.tree) return [];
     if (state.query) {
       return T.search(state.tree.all, state.query)
-        .filter((n) => !state.imagesOnly || isImage(n))
+        .filter((n) => (!state.imagesOnly || isImage(n)) && changeMatch(n))
         .map((node) => ({ node, depth: 0 }));
     }
     const filter = itemFilter();
+    if (isOverview()) return state.tree.all.filter((n) => n.type === 'file' && filter(n)).map((node) => ({ node, depth: 0 }));
     if (effectiveView() === 'list') return T.flatten(state.cwd, state.expanded, filter);
     return state.cwd.children.filter(filter).map((node) => ({ node, depth: 0 }));
   }
@@ -208,11 +230,13 @@
     if (!rows.length) {
       let msg = t('empty.folder');
       if (state.query) msg = t('empty.search', { q: esc(state.query) });
+      else if (isOverview()) msg = t('empty.noCommitChanges');
+      else if (state.changeFilter !== 'all') msg = t('empty.noChanges');
       else if (state.imagesOnly) msg = t('empty.noImages');
       c.innerHTML = `<div class="empty">${msg}</div>`;
       return;
     }
-    mountVirtual(view, rows, !!state.query);
+    mountVirtual(view, rows, !!state.query || isOverview());
   }
 
   const findEl = (node) => dom.content.querySelector(`[data-path="${CSS.escape(node.path)}"]`);
@@ -236,12 +260,13 @@
       dom.crumbs.innerHTML = '';
       return;
     }
-    const chain = T.ancestors(state.selected || state.cwd);
+    // 總覽沒有資料夾位置，路徑列只留 repo
+    const chain = isOverview() ? [state.tree.root] : T.ancestors(state.selected || state.cwd);
     const sep = '<span class="crumb-sep">›</span>';
     dom.crumbs.innerHTML = chain
       .map((n, i) => {
         if (i === 0) {
-          return `<button class="crumb" data-crumb=""><span class="ri-icon">${repoIcon()}</span><span>${esc(state.repo.owner)}/${esc(state.repo.name)}</span><span class="branch-chip">${esc(state.repo.branch)}</span></button>`;
+          return `<button class="crumb" data-crumb=""><span class="ri-icon">${repoIcon()}</span><span>${esc(state.repo.owner)}/${esc(state.repo.name)}</span><span class="branch-chip">${esc(state.repo.commit ? GF.commit.shortSha(state.repo.commit.sha) : state.repo.branch)}</span></button>`;
         }
         const icon = n.type === 'dir' ? folderIcon() : fileIcon(n.label);
         return `${sep}<button class="crumb" data-crumb="${esc(n.path)}">${icon}<span>${esc(n.name)}</span></button>`;
@@ -263,21 +288,42 @@
     dom.status.innerHTML = esc(parts.join(' · ')) + warn;
   }
 
+  /** 剩不到四分之一就變色提醒（沒有 token 時是 15 / 60） */
+  const RATE_LOW_RATIO = 0.25;
+
+  /** 側邊欄底部的 API 額度：數字加小進度條，點擊可打開設定 */
+  function renderRate() {
+    const rate = gh.getRate();
+    dom.rate.classList.toggle('hidden', !rate);
+    if (!rate) return;
+    const ratio = rate.limit > 0 ? rate.remaining / rate.limit : 0;
+    const tip = t('sidebar.rateTip', { left: rate.remaining, limit: rate.limit });
+    dom.rate.classList.toggle('low', ratio <= RATE_LOW_RATIO);
+    dom.rate.dataset.tip = tip;
+    dom.rate.setAttribute('aria-label', tip);
+    dom.rate.innerHTML =
+      `<span>API ${rate.remaining}/${rate.limit}</span>` +
+      `<span class="rate-bar" aria-hidden="true"><i style="width:${Math.round(Math.min(Math.max(ratio, 0), 1) * 100)}%"></i></span>`;
+  }
+
   function renderChrome() {
     dom.seg.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.view === state.view));
     dom.size.classList.toggle('hidden', effectiveView() !== 'icon');
     dom.images.classList.toggle('on', state.imagesOnly);
-    dom.back.disabled = !state.back.length;
-    dom.fwd.disabled = !state.fwd.length;
+    dom.back.disabled = !state.back.length || isOverview();
+    dom.fwd.disabled = !state.fwd.length || isOverview();
     dom.home.classList.toggle('active', !state.repo);
     dom.app.classList.toggle('is-loading', state.loading);
     const cwdName = state.cwd && state.cwd.path ? state.cwd.name : state.repo ? state.repo.name : 'GitFinder';
-    dom.title.textContent = state.query ? t('tb.search', { q: state.query }) : cwdName;
+    let title = cwdName;
+    if (state.query) title = t('tb.search', { q: state.query });
+    else if (isOverview()) title = t('commit.overview');
+    dom.title.textContent = title;
     document.title = state.repo ? `${cwdName} — ${state.repo.owner}/${state.repo.name}` : 'GitFinder';
     renderCrumbs();
     renderStatus();
-    const rate = gh.getRate();
-    dom.rate.textContent = rate ? t('sidebar.rate', { left: rate.remaining, limit: rate.limit }) : '';
+    GF.commit.render(state);
+    renderRate();
   }
 
   /* ---------- 倉庫記憶（localStorage） ---------- */
@@ -286,7 +332,7 @@
     return Array.isArray(list) ? list.filter((r) => r && typeof r.owner === 'string' && typeof r.name === 'string') : [];
   }
 
-  const findRecent = (key) => getRecents().find((r) => repoKey(r) === key) || null;
+  const findRecent = (key) => getRecents().find((r) => recentKey(r) === key) || null;
 
   /**
    * 側邊欄順序由使用者決定：已存在的倉庫原地更新（不移動位置），新倉庫加在最上面。
@@ -294,9 +340,13 @@
    */
   function saveRecent(repo, path) {
     const list = getRecents();
-    const entry = { owner: repo.owner, name: repo.name, branch: repo.branch, path: path || '', openedAt: Date.now() };
-    const exists = list.some((r) => repoKey(r) === repoKey(repo));
-    const next = exists ? list.map((r) => (repoKey(r) === repoKey(repo) ? entry : r)) : [entry, ...list];
+    const entry = {
+      owner: repo.owner, name: repo.name, branch: repo.branch, path: path || '', openedAt: Date.now(),
+      ...(repo.commit && { commit: repo.commit.sha, commitTitle: repo.commit.message.split('\n')[0] }),
+    };
+    const key = recentKey(entry);
+    const exists = list.some((r) => recentKey(r) === key);
+    const next = exists ? list.map((r) => (recentKey(r) === key ? entry : r)) : [entry, ...list];
     store.set(KEYS.repos, next);
     renderSidebar();
   }
@@ -305,10 +355,10 @@
   function moveRecent(fromKey, toKey, after) {
     if (fromKey === toKey) return;
     const list = getRecents();
-    const moving = list.find((r) => repoKey(r) === fromKey);
+    const moving = list.find((r) => recentKey(r) === fromKey);
     if (!moving) return;
-    const rest = list.filter((r) => repoKey(r) !== fromKey);
-    const idx = rest.findIndex((r) => repoKey(r) === toKey);
+    const rest = list.filter((r) => recentKey(r) !== fromKey);
+    const idx = rest.findIndex((r) => recentKey(r) === toKey);
     if (idx < 0) return;
     const at = after ? idx + 1 : idx;
     store.set(KEYS.repos, [...rest.slice(0, at), moving, ...rest.slice(at)]);
@@ -316,23 +366,29 @@
   }
 
   function removeRecent(key) {
-    store.set(KEYS.repos, getRecents().filter((r) => repoKey(r) !== key));
+    store.set(KEYS.repos, getRecents().filter((r) => recentKey(r) !== key));
     renderSidebar();
     if (!state.tree) renderContent();
   }
 
+  /** commit 項目的小字：有訊息就顯示訊息，否則顯示短 sha */
+  const recentCommitLabel = (r) => (typeof r.commitTitle === 'string' && r.commitTitle ? r.commitTitle : `@${GF.commit.shortSha(r.commit)}`);
+
+  /** 用 SVG 畫叉叉：文字的「×」會受字型基線影響而偏離圓心 */
+  const REMOVE_ICON = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 2.5l5 5M7.5 2.5l-5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+
   function renderSidebar() {
     const list = getRecents();
-    const current = state.repo ? repoKey(state.repo) : '';
+    const current = state.repo ? recentKey({ ...state.repo, commit: state.repo.commit && state.repo.commit.sha }) : '';
     dom.repoList.innerHTML = list.length
       ? list
           .map((r) => {
-            const key = repoKey(r);
-            const sub = [r.owner, r.branch].filter(Boolean).map(esc).join(' · ');
+            const key = recentKey(r);
+            const sub = [r.owner, r.commit ? recentCommitLabel(r) : r.branch].filter(Boolean).map(esc).join(' · ');
             return (
               `<li class="repo-item${key === current ? ' active' : ''}" data-repo="${esc(key)}" draggable="true">` +
               `<span class="ri-icon">${repoIcon()}</span><span class="ri-text"><span class="ri-name">${esc(r.name)}</span>` +
-              `<span class="ri-owner">${sub}</span></span><button class="ri-remove" type="button" data-remove data-tip="${esc(t('sidebar.remove'))}">×</button></li>`
+              `<span class="ri-owner">${sub}</span></span><button class="ri-remove" type="button" data-remove data-tip="${esc(t('sidebar.remove'))}" aria-label="${esc(t('sidebar.remove'))}">${REMOVE_ICON}</button></li>`
             );
           })
           .join('')
@@ -356,6 +412,7 @@
    */
   function fromCache(target) {
     const prefix = `${repoKey(target)}@`;
+    if (target.commit) return { data: treeCache.get(commitCacheKey(target, target.commit)) || null, path: target.path || '' };
     if (target.branch) return { data: treeCache.get(prefix + target.branch) || null, path: target.path || '' };
     if (!target.refPath) return { data: null, path: '' };
     for (const [key, data] of treeCache) {
@@ -368,6 +425,18 @@
     return { data: null, path: '' };
   }
 
+  /** 分支：抓整棵檔案樹；commit：只抓這次變動的檔案，branch 設成完整 sha */
+  async function loadTarget(target, opts) {
+    if (target.commit) {
+      const res = await gh.fetchCommit(target, opts);
+      const tree = T.buildTree(res.entries);
+      const commit = Object.freeze({ sha: res.sha, parentSha: res.parentSha, message: res.message, counts: tree.root.changes });
+      return { data: Object.freeze({ branch: res.sha, tree, truncated: res.truncated, commit }), path: target.path || '' };
+    }
+    const res = await gh.fetchRepo(target, opts);
+    return { data: Object.freeze({ branch: res.branch, tree: T.buildTree(res.entries), truncated: res.truncated }), path: res.path };
+  }
+
   async function openRepo(target) {
     const seq = ++loadSeq;
     QL.close();
@@ -376,19 +445,19 @@
       let retried = false;
       let { data, path } = fromCache(target);
       if (!data) {
-        const res = await gh.fetchRepo(target, {
+        const loaded = await loadTarget(target, {
           onRetry: (n, total) => {
             retried = true;
             if (seq === loadSeq) toast(t('toast.retrying', { n, total }), 'info', 15000);
           },
         });
-        data = Object.freeze({ branch: res.branch, tree: T.buildTree(res.entries), truncated: res.truncated });
-        treeCache.set(`${repoKey(target)}@${res.branch}`, data);
-        path = res.path;
+        data = loaded.data;
+        treeCache.set(data.commit ? commitCacheKey(target, data.commit.sha) : `${repoKey(target)}@${data.branch}`, data);
+        path = loaded.path;
       }
       if (seq !== loadSeq) return;
       if (retried) hideToast();
-      const repo = Object.freeze({ owner: target.owner, name: target.name, branch: data.branch });
+      const repo = Object.freeze({ owner: target.owner, name: target.name, branch: data.branch, ...(data.commit && { commit: data.commit }) });
       const hit = path ? data.tree.byPath.get(path) : null;
       let cwd = data.tree.root;
       let selected = null;
@@ -401,7 +470,7 @@
       dom.search.value = '';
       // 直接打開深層網址時，把上層資料夾放進「上一頁」，按上一頁就能一層層往回走
       const back = T.ancestors(cwd).slice(0, -1);
-      setState({ repo, tree: data.tree, truncated: data.truncated, cwd, selected, query: '', expanded: EMPTY, back, fwd: [], loading: false });
+      setState({ repo, tree: data.tree, truncated: data.truncated, cwd, selected, query: '', changeFilter: 'all', overview: false, overviewFrom: null, expanded: EMPTY, back, fwd: [], loading: false });
       resetScroll();
       store.set(KEYS.autoOpen, true);
       persistLocation();
@@ -425,20 +494,26 @@
     return true;
   }
 
-  const openRecent = (entry) => entry && openRepo({ owner: entry.owner, name: entry.name, branch: entry.branch || null, path: entry.path || '' });
+  const openRecent = (entry) =>
+    entry && openRepo({
+      owner: entry.owner, name: entry.name, branch: entry.branch || null, path: entry.path || '',
+      ...(entry.commit && { commit: entry.commit }),
+    });
 
   /* ---------- 導覽 ---------- */
   function navigate(dir, { select: sel = null } = {}) {
     if (!dir || dir.type !== 'dir') return;
     const back = state.cwd && state.cwd !== dir ? [...state.back, state.cwd].slice(-100) : state.back;
     dom.search.value = '';
-    setState({ cwd: dir, selected: sel, back, fwd: [], query: '', expanded: EMPTY });
+    // 從總覽（例如搜尋結果裡的資料夾）打開資料夾時，同時離開總覽
+    setState({ cwd: dir, selected: sel, back, fwd: [], query: '', expanded: EMPTY, overview: false, overviewFrom: null });
     if (!sel) resetScroll();
     else markSelection();
     persistLocation();
   }
 
   function historyMove(from, to) {
+    if (isOverview()) return;
     const stack = [...state[from]];
     const target = stack.pop();
     if (!target) return;
@@ -449,7 +524,19 @@
   }
   const goBack = () => historyMove('back', 'fwd');
   const goForward = () => historyMove('fwd', 'back');
-  const goUp = () => state.cwd && state.cwd.parent && navigate(state.cwd.parent, { select: state.cwd });
+  const goUp = () => !isOverview() && state.cwd && state.cwd.parent && navigate(state.cwd.parent, { select: state.cwd });
+
+  /** 打開總覽時位置固定在 repo 根目錄；關閉時回到原本的資料夾 */
+  function toggleOverview() {
+    if (!state.repo || !state.repo.commit) return;
+    if (state.overview) {
+      setState({ overview: false, overviewFrom: null, cwd: state.overviewFrom || state.tree.root, selected: null, expanded: EMPTY });
+    } else {
+      setState({ overview: true, overviewFrom: state.cwd, cwd: state.tree.root, selected: null, expanded: EMPTY });
+    }
+    resetScroll();
+    persistLocation();
+  }
 
   /** 關閉目前倉庫回到首頁；重新整理後也停留在首頁 */
   function goHome() {
@@ -581,7 +668,7 @@
   GF.app = Object.freeze({
     get state() { return state; },
     effectiveView, navList, itemFilter, selectedNodes, setState, select, toggleSelect, rangeSelect, selectAll, setPicked,
-    navigate, openNode, openQuickLook, toggleExpand, setView, goBack, goForward, goUp, goHome,
+    navigate, toggleOverview, openNode, openQuickLook, toggleExpand, setView, goBack, goForward, goUp, goHome,
     openRepo, openFromInput, openRecent, findRecent, removeRecent, moveRecent, getRecents,
     renderSidebar, renderContent, renderChrome, toast, dom, persistLater,
     gridCols: () => (vview.layout ? vview.layout.cols : 1), virtualRects: () => vview.rects(), relayout: () => vview.relayout(),

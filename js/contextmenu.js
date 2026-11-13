@@ -77,7 +77,10 @@
   function repoMenu(key) {
     const entry = A.findRecent(key);
     if (!entry) return [];
-    const repo = { owner: entry.owner, name: entry.name, branch: entry.branch || 'HEAD' };
+    const repo = {
+      owner: entry.owner, name: entry.name, branch: entry.branch || 'HEAD',
+      ...(typeof entry.commit === 'string' && { commit: { sha: entry.commit, parentSha: null } }),
+    };
     const url = webUrl(repo, null);
     return [
       { label: t('menu.open'), run: () => A.openRecent(entry) },

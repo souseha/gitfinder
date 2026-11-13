@@ -185,3 +185,101 @@ describe('fetchRepo', () => {
     expect(spy.mock.calls[0][1].headers.Authorization).toBe('Bearer test-token');
   });
 });
+
+describe('commit URLs', () => {
+  const C = 'abc1234def5678abc1234def5678abc1234def56';
+  const expected = (commit, path = '') => ({ owner: 'a', name: 'b', branch: null, path, refPath: '', commit });
+  it.each([
+    [`https://github.com/a/b/commit/${C}`, C],
+    [`https://github.com/a/b/commit/${C}.patch`, C],
+    [`https://github.com/a/b/commit/${C}.diff`, C],
+    [`https://github.com/a/b/commit/${C}#diff-123`, C],
+    [`https://github.com/a/b/commit/${C}?w=1`, C],
+    [`a/b/commit/${C.toUpperCase()}`, C],
+    ['a/b/commit/abc1234', 'abc1234'],
+  ])('parses %s', (input, sha) => {
+    expect(gh.parseRepoInput(input)).toEqual(expected(sha));
+  });
+  it('parses an app route with a folder', () => {
+    expect(gh.parseRoute(`/a/b/commit/${C}/spine/char`)).toEqual(expected(C, 'spine/char'));
+  });
+  it.each(['a/b/commit/xyz', 'a/b/commit/abc12', 'a/b/commit/'])('does not treat %j as a commit', (input) => {
+    expect(gh.parseRepoInput(input)).not.toHaveProperty('commit');
+  });
+  it('builds commit routes', () => {
+    const repo = { owner: 'a', name: 'b', branch: C, commit: { sha: C } };
+    expect(gh.routeUrl(repo, '')).toBe(`/a/b/commit/${C}`);
+    expect(gh.routeUrl(repo, 'x/a b')).toBe(`/a/b/commit/${C}/x/a%20b`);
+  });
+});
+
+describe('fetchCommit', () => {
+  const F = 'f'.repeat(40);
+  const P = 'e'.repeat(40);
+  const file = (filename, status, previous_filename) => ({ filename, status, ...(previous_filename && { previous_filename }) });
+  const body = (files, parents = [{ sha: P }]) => json({ sha: F, parents, commit: { message: 'feat: x\n\nbody' }, files });
+  it('pages until a short page and normalizes statuses', async () => {
+    const page1 = Array.from({ length: 300 }, (_, i) => file(`img/${i}.png`, 'added'));
+    const page2 = [file('a.png', 'removed'), file('b.png', 'renamed', 'old/b.png'), file('c.png', 'copied'), file('d.txt', 'changed'), file('e', 'unchanged')];
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(body(page1)).mockResolvedValueOnce(body(page2));
+    const res = await gh.fetchCommit({ owner: 'a', name: 'b', commit: 'fff1234' });
+    expect(spy.mock.calls[0][0]).toContain('/repos/a/b/commits/fff1234?per_page=300&page=1');
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(res).toMatchObject({ sha: F, parentSha: P, message: 'feat: x\n\nbody', truncated: false });
+    expect(res.entries).toHaveLength(304); // unchanged 被略過
+    expect(res.entries.find((e) => e.path === 'b.png').change).toEqual({ status: 'renamed', previousPath: 'old/b.png' });
+    expect(res.entries.find((e) => e.path === 'c.png').change.status).toBe('added');
+    expect(res.entries.find((e) => e.path === 'd.txt').change.status).toBe('modified');
+  });
+  it('stops at 10 full pages and marks truncated', async () => {
+    const full = Array.from({ length: 300 }, (_, i) => file(`${i}.png`, 'added'));
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => body(full, []));
+    const res = await gh.fetchCommit({ owner: 'a', name: 'b', commit: 'fff1234' });
+    expect(spy).toHaveBeenCalledTimes(10);
+    expect(res.truncated).toBe(true);
+    expect(res.parentSha).toBeNull();
+  });
+});
+
+describe('fileUrl / previousUrl', () => {
+  const C = 'c'.repeat(40);
+  const P = 'e'.repeat(40);
+  const repo = { owner: 'a', name: 'b', branch: C, commit: { sha: C, parentSha: P } };
+  const node = (path, status, previousPath = null) => ({ path, type: 'file', ext: 'png', size: null, change: { status, previousPath } });
+  const raw = (ref, p) => `https://raw.githubusercontent.com/a/b/${ref}/${p}`;
+  it('uses the parent for removed files', () => {
+    expect(gh.fileUrl(repo, node('x.png', 'removed'))).toBe(raw(P, 'x.png'));
+    expect(gh.fileUrl(repo, node('x.png', 'added'))).toBe(raw(C, 'x.png'));
+    expect(gh.fileUrl({ owner: 'a', name: 'b', branch: 'main' }, { path: 'x.png' })).toBe(raw('main', 'x.png'));
+  });
+  it('gives the previous version for modified and renamed files', () => {
+    expect(gh.previousUrl(repo, node('x.png', 'modified'))).toBe(raw(P, 'x.png'));
+    expect(gh.previousUrl(repo, node('new/x.png', 'renamed', 'old/x.png'))).toBe(raw(P, 'old/x.png'));
+    expect(gh.previousUrl(repo, node('x.png', 'added'))).toBeNull();
+    expect(gh.previousUrl({ ...repo, commit: { ...repo.commit, parentSha: null } }, node('x.png', 'modified'))).toBeNull();
+  });
+  it('thumbnails and GitHub links of removed files point at the parent', () => {
+    expect(gh.thumbUrl(repo, node('x.png', 'removed'), 480)).toContain(encodeURIComponent(raw(P, 'x.png')));
+    expect(gh.webUrl(repo, node('x.png', 'removed'))).toBe(`https://github.com/a/b/blob/${P}/x.png`);
+  });
+});
+
+describe('webUrl for a commit', () => {
+  it('links the commit itself when no file is given', () => {
+    const C = 'c'.repeat(40);
+    expect(gh.webUrl({ owner: 'a', name: 'b', branch: C, commit: { sha: C, parentSha: null } }, null)).toBe(`https://github.com/a/b/commit/${C}`);
+  });
+});
+
+describe('previousThumbUrl', () => {
+  const C = 'c'.repeat(40);
+  const P = 'e'.repeat(40);
+  const repo = { owner: 'a', name: 'b', branch: C, commit: { sha: C, parentSha: P } };
+  const node = (status) => ({ path: 'x.png', type: 'file', ext: 'png', size: null, change: { status, previousPath: null } });
+  it('proxies the previous version of modified images', () => {
+    expect(gh.previousThumbUrl(repo, node('modified'), 480)).toContain(encodeURIComponent(`https://raw.githubusercontent.com/a/b/${P}/x.png`));
+  });
+  it('returns null when there is no previous version', () => {
+    expect(gh.previousThumbUrl(repo, node('added'), 480)).toBeNull();
+  });
+});

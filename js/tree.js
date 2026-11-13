@@ -7,7 +7,7 @@
 
   const parentOf = (path) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '');
 
-  function makeNode(path, type, size, parent) {
+  function makeNode(path, type, size, parent, change = null) {
     const name = path.slice(path.lastIndexOf('/') + 1);
     return {
       name,
@@ -20,7 +20,25 @@
       parent,
       children: type === 'dir' ? [] : null,
       stats: null,
+      // commit 檢視才有：檔案的變動狀態、資料夾內各狀態的數量
+      change,
+      changes: null,
     };
+  }
+
+  const CHANGE_KINDS = Object.freeze(['added', 'removed', 'renamed', 'modified']);
+
+  function computeChanges(dir) {
+    const counts = Object.fromEntries(CHANGE_KINDS.map((k) => [k, 0]));
+    for (const child of dir.children) {
+      if (child.type === 'dir') {
+        computeChanges(child);
+        CHANGE_KINDS.forEach((k) => { counts[k] += child.changes[k]; });
+      } else if (child.change && child.change.status in counts) {
+        counts[child.change.status] += 1;
+      }
+    }
+    dir.changes = Object.freeze(counts);
   }
 
   function compare(a, b) {
@@ -67,7 +85,7 @@
         ensureDir(entry.path);
       } else if (entry.type === 'blob' && !byPath.has(entry.path)) {
         const parent = ensureDir(parentOf(entry.path));
-        const node = makeNode(entry.path, 'file', entry.size, parent);
+        const node = makeNode(entry.path, 'file', entry.size, parent, entry.change || null);
         parent.children.push(node);
         byPath.set(entry.path, node);
       }
@@ -79,6 +97,7 @@
       if (node !== root) all.push(node);
     }
     computeStats(root);
+    if (entries.some((e) => e.change)) computeChanges(root);
     return Object.freeze({ root, byPath, all });
   }
 

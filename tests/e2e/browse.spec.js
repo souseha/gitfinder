@@ -5,7 +5,7 @@ const item = (page, path) => page.locator(`[data-path="${path}"]`);
 test('opens a repository from the home page', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.welcome h1')).toHaveText('GitFinder');
-  await expect(page.locator('#btn-settings')).toContainText('Settings'); // 預設英文
+  await expect(page.locator('#btn-settings')).toHaveAttribute('aria-label', 'Settings'); // 預設英文
   await page.locator('#welcome-input').fill('https://github.com/demo/assets');
   await page.locator('#welcome-input').press('Enter');
   await expect(page).toHaveURL(/\/demo\/assets\/tree\/main$/);
@@ -155,6 +155,6 @@ test('settings switch language and theme', async ({ page }) => {
   await page.locator('#lang-select').selectOption('zh-Hant');
   await page.locator('[data-theme-opt="dark"]').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await page.getByRole('button', { name: '儲存' }).click();
-  await expect(page.locator('#btn-settings')).toContainText('設定');
+  await page.getByRole('button', { name: '完成' }).click();
+  await expect(page.locator('#btn-settings')).toHaveAttribute('aria-label', '設定');
 });

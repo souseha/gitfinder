@@ -2,8 +2,8 @@
 (function (GF) {
   'use strict';
 
-  const { esc, folderIcon, fileIcon, repoIcon, logoIcon, isImage, formatSize, kindOf, MOD_LABEL } = GF.util;
-  const { rawUrl, thumbUrl, webUrl } = GF.github;
+  const { esc, recentKey, folderIcon, fileIcon, repoIcon, logoIcon, isImage, formatSize, kindOf, MOD_LABEL } = GF.util;
+  const { fileUrl, previousUrl, thumbUrl, previousThumbUrl, webUrl } = GF.github;
   const { ancestors } = GF.tree;
   const { t } = GF.i18n;
 
@@ -17,10 +17,29 @@
   function thumbHtml(repo, node, size = 'mini', eager = false) {
     if (node.type === 'dir') return folderIcon();
     if (!isImage(node)) return fileIcon(node.label);
-    const raw = rawUrl(repo, node.path);
+    const raw = fileUrl(repo, node);
     const src = size === 'full' ? raw : thumbUrl(repo, node, THUMB[size]);
     return `<img src="${esc(src)}" data-raw="${esc(raw)}" alt="" data-ext="${esc(node.label)}" loading="${eager ? 'eager' : 'lazy'}" decoding="async" draggable="false">`;
   }
+
+  /** commit 檢視中修改 / 改名的圖：縮圖左右各半，左邊上一版、右邊這一版 */
+  function pairThumbHtml(repo, node) {
+    const before = previousUrl(repo, node);
+    if (!before || !isImage(node)) return null;
+    const img = (side, src, raw) =>
+      `<img src="${esc(src)}" data-raw="${esc(raw)}" data-side="${side}" alt="" data-ext="${esc(node.label)}" loading="lazy" decoding="async" draggable="false">`;
+    const after = fileUrl(repo, node);
+    return img('before', previousThumbUrl(repo, node, THUMB.icon), before) + img('after', thumbUrl(repo, node, THUMB.icon), after);
+  }
+
+  /** commit 檢視：檔案的狀態標籤；資料夾顯示這次新增了幾個檔案 */
+  function changeBadge(node) {
+    if (node.change) return `<span class="chg chg-${esc(node.change.status)}">${esc(t(`chg.${node.change.status}`))}</span>`;
+    if (node.changes && node.changes.added > 0) return `<span class="chg-count">+${node.changes.added}</span>`;
+    return '';
+  }
+
+  const removedClass = (node) => (node.change && node.change.status === 'removed' ? ' is-removed' : '');
 
   const parentLabel = (node) => (node.parent && node.parent.path ? node.parent.path : '/');
 
@@ -28,10 +47,16 @@
   function iconItem(repo, node, showPath) {
     const sub = showPath ? `<div class="sub">${esc(parentLabel(node))}</div>` : '';
     return (
-      `<div class="icon-item" data-path="${esc(node.path)}">` +
-      `<div class="thumb">${thumbHtml(repo, node, 'icon')}</div>` +
+      `<div class="icon-item${removedClass(node)}" data-path="${esc(node.path)}">` +
+      `${iconThumb(repo, node)}` +
       `<div class="label"><span>${esc(node.name)}</span></div>${sub}</div>`
     );
+  }
+
+  function iconThumb(repo, node) {
+    const pair = pairThumbHtml(repo, node);
+    if (pair) return `<div class="thumb thumb-pair">${pair}${changeBadge(node)}</div>`;
+    return `<div class="thumb">${thumbHtml(repo, node, 'icon')}${changeBadge(node)}</div>`;
   }
 
   const iconShell = () => '<div class="icon-grid"></div>';
@@ -43,9 +68,9 @@
     if (node.type === 'dir' && !showPath) disc = expanded.has(node.path) ? 'open' : 'closed';
     const loc = showPath ? `<div class="c-loc">${esc(parentLabel(node))}</div>` : '';
     return (
-      `<div class="row" data-path="${esc(node.path)}" style="--depth:${depth}">` +
+      `<div class="row${removedClass(node)}" data-path="${esc(node.path)}" style="--depth:${depth}">` +
       `<div class="c-name"><span class="disc ${disc}" data-disc></span>` +
-      `<span class="mini">${thumbHtml(repo, node)}</span><span class="nm">${esc(node.name)}</span></div>` +
+      `<span class="mini">${thumbHtml(repo, node)}</span><span class="nm">${esc(node.name)}</span>${changeBadge(node)}</div>` +
       `<div class="c-size">${sizeLabel(node)}</div><div class="c-kind">${esc(kindOf(node))}</div>${loc}</div>`
     );
   }
@@ -81,8 +106,8 @@
   function columnItem(repo, n, cls) {
     const chev = n.type === 'dir' ? '<span class="chev">›</span>' : '';
     return (
-      `<div class="col-item${cls}" data-path="${esc(n.path)}">` +
-      `<span class="mini">${thumbHtml(repo, n)}</span><span class="nm">${esc(n.name)}</span>${chev}</div>`
+      `<div class="col-item${cls}${removedClass(n)}" data-path="${esc(n.path)}">` +
+      `<span class="mini">${thumbHtml(repo, n)}</span><span class="nm">${esc(n.name)}</span>${changeBadge(n)}${chev}</div>`
     );
   }
 
@@ -109,6 +134,8 @@
   }
 
   const EXAMPLES = ['microsoft/fluentui-emoji', 'simple-icons/simple-icons', 'github/explore'];
+  /** commit 範例：一頁就抓完（164 個檔案），同時有新增與修改，看得到攤平和前後對照 */
+  const EXAMPLE_COMMIT = 'microsoft/fluentui-emoji/commit/b4291bec813f3d1556283ca9fcbdb73c86e2e9f7';
   const MAX_WELCOME_RECENTS = 5;
 
   /** 「3 分鐘前」這類相對時間 */
@@ -128,8 +155,9 @@
       .sort((a, b) => (b.openedAt || 0) - (a.openedAt || 0)) // 首頁依開啟時間排序，側邊欄則保留使用者順序
       .slice(0, MAX_WELCOME_RECENTS)
       .map((r) => {
-        const key = `${r.owner}/${r.name}`.toLowerCase();
-        const where = [r.branch, r.path].filter(Boolean).join(' · ');
+        const key = recentKey(r);
+        const commit = typeof r.commit === 'string' ? (r.commitTitle || `@${r.commit.slice(0, 7)}`) : '';
+        const where = [commit || r.branch, r.path].filter(Boolean).join(' · ');
         return (
           `<button type="button" class="recent-row" data-recent="${esc(key)}">` +
           `<span class="rc-icon">${repoIcon()}</span><span class="rc-text"><span class="rc-name">${esc(r.owner)}/${esc(r.name)}</span>` +
@@ -142,13 +170,15 @@
   }
 
   function welcome(recents = []) {
-    const examples = EXAMPLES.map((r) => `<button type="button" data-example="${esc(r)}">${esc(r)}</button>`).join('');
+    const examples =
+      EXAMPLES.map((r) => `<button type="button" data-example="${esc(r)}">${esc(r)}</button>`).join('') +
+      `<button type="button" class="example-commit" data-example="${esc(EXAMPLE_COMMIT)}">${esc(t('welcome.exampleCommit'))}</button>`;
     const hint = (key, label) => `<span><kbd>${key}</kbd> ${t(label)}</span>`;
     return (
       '<div class="welcome">' +
       `<div class="welcome-icon">${logoIcon()}</div>` +
       '<h1>GitFinder</h1>' +
-      `<p>${t('welcome.tagline')}</p>` +
+      `<p>${t('welcome.tagline')}<br><span class="welcome-sub">${t('welcome.commitLine')}</span></p>` +
       `<form id="welcome-form" autocomplete="off"><input id="welcome-input" type="text" spellcheck="false" placeholder="${esc(t('welcome.inputPh'))}"><button type="submit">${t('common.open')}</button></form>` +
       `<div class="examples">${t('welcome.try')}${examples}</div>` +
       recentList(recents) +
@@ -160,5 +190,5 @@
 
   const loading = () => '<div class="empty"><div class="spinner"></div></div>';
 
-  GF.views = Object.freeze({ thumbHtml, iconItem, iconShell, listRow, listShell, columnView, welcome, loading });
+  GF.views = Object.freeze({ thumbHtml, changeBadge, iconItem, iconShell, listRow, listShell, columnView, welcome, loading });
 })(window.GF);

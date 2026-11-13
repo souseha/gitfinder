@@ -90,3 +90,18 @@ describe('flatten / ancestors', () => {
     ]);
   });
 });
+
+describe('buildTree with commit changes', () => {
+  const c = (path, status) => ({ path, type: 'blob', size: null, change: { status, previousPath: null } });
+  it('carries change onto nodes and counts per folder', () => {
+    const { root, byPath } = T.buildTree([c('a/x.png', 'added'), c('a/y.png', 'added'), c('a/b/z.png', 'removed'), c('r.md', 'modified')]);
+    expect(byPath.get('a/x.png').change.status).toBe('added');
+    expect(byPath.get('a').changes).toEqual({ added: 2, removed: 1, renamed: 0, modified: 0 });
+    expect(root.changes).toEqual({ added: 2, removed: 1, renamed: 0, modified: 1 });
+  });
+  it('leaves change info empty for normal trees', () => {
+    const { root, byPath } = T.buildTree(ENTRIES);
+    expect(root.changes).toBeNull();
+    expect(byPath.get('README.md').change).toBeNull();
+  });
+});

@@ -3,7 +3,7 @@
   'use strict';
 
   const { esc, isImage, isText, kindOf, formatSize, folderIcon, fileIcon } = GF.util;
-  const { rawUrl, webUrl } = GF.github;
+  const { fileUrl, previousUrl, webUrl } = GF.github;
   const { thumbHtml } = GF.views;
   const { t } = GF.i18n;
 
@@ -67,17 +67,40 @@
     return parts.join(' · ');
   }
 
-  function showImage(node) {
+  function makeImage(node, src) {
     const img = new Image();
     img.className = 'ql-img';
     img.alt = node.name;
     img.draggable = false;
     img.dataset.ext = node.label;
+    img.src = src;
+    return img;
+  }
+
+  /** commit 裡修改 / 改名的圖：左邊上一版、右邊這一版 */
+  function compareSide(img, side) {
+    img.dataset.side = side;
+    const fig = document.createElement('figure');
+    const cap = document.createElement('figcaption');
+    cap.textContent = t(`ql.${side}`);
+    fig.append(img, cap);
+    return fig;
+  }
+
+  function showImage(node) {
+    const img = makeImage(node, fileUrl(ctx.repo, node));
     img.onload = () => {
       if (ctx && ctx.list[ctx.index] === node) el.meta.textContent = metaText(node, `${img.naturalWidth} × ${img.naturalHeight}`);
     };
-    img.src = rawUrl(ctx.repo, node.path);
-    el.stage.replaceChildren(img);
+    const before = previousUrl(ctx.repo, node);
+    if (!before) {
+      el.stage.replaceChildren(img);
+      return;
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'ql-compare';
+    wrap.append(compareSide(makeImage(node, before), 'before'), compareSide(img, 'after'));
+    el.stage.replaceChildren(wrap);
   }
 
   async function showText(node) {
@@ -88,17 +111,18 @@
       pre.textContent = t('ql.tooBig', { size: formatSize(node.size) });
       return;
     }
-    if (textCache.has(node.path)) {
-      pre.textContent = textCache.get(node.path);
+    const url = fileUrl(ctx.repo, node);
+    if (textCache.has(url)) {
+      pre.textContent = textCache.get(url);
       return;
     }
     pre.textContent = t('ql.loading');
     textAbort = new AbortController();
     try {
-      const res = await fetch(rawUrl(ctx.repo, node.path), { signal: textAbort.signal });
+      const res = await fetch(url, { signal: textAbort.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const text = await res.text();
-      textCache.set(node.path, text);
+      textCache.set(url, text);
       pre.textContent = text;
     } catch (err) {
       if (err.name !== 'AbortError') pre.textContent = t('ql.loadFail', { msg: err.message });
@@ -114,7 +138,7 @@
   function preloadNeighbors() {
     [ctx.index - 1, ctx.index + 1].forEach((i) => {
       const n = ctx.list[i];
-      if (isImage(n)) new Image().src = rawUrl(ctx.repo, n.path);
+      if (isImage(n)) new Image().src = fileUrl(ctx.repo, n);
     });
   }
 
@@ -151,7 +175,8 @@
     if (btn) go(Number(btn.dataset.i));
   });
   el.stage.addEventListener('click', (e) => {
-    if (e.target.classList.contains('ql-img')) el.stage.classList.toggle('zoom');
+    // 比較檢視有兩張圖，放大會讓兩張重疊，所以只在單張圖時切換
+    if (e.target.classList.contains('ql-img') && !e.target.closest('.ql-compare')) el.stage.classList.toggle('zoom');
     else if (e.target === el.stage) close();
   });
   // 觸控滑動切換

@@ -71,6 +71,8 @@
       { label: t('menu.copyPath'), run: () => X.copyPaths([st.cwd]) },
       { label: t('menu.copyGh'), run: () => X.copyGhLink(st.cwd) },
       { label: t('menu.openGh'), run: () => X.openOnGitHub(st.cwd) },
+      SEP,
+      { label: t('menu.reload'), run: A.reloadRepo },
     ];
   }
 
@@ -87,6 +89,7 @@
     return [
       { label: t('menu.open'), run: () => A.openRecent(entry) },
       { label: t('menu.openNewTab'), run: () => X.openInNewTab(repo, entry.path || '') },
+      { label: t('menu.reload'), run: () => A.openRecent(entry, { refresh: true }) },
       SEP,
       { label: t('menu.copyRepoUrl'), run: () => X.copyText(`https://github.com/${entry.owner}/${entry.name}`) },
       { label: t('menu.openGh'), run: () => window.open(url, '_blank', 'noopener') },

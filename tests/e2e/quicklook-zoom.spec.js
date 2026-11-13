@@ -10,6 +10,8 @@ async function quickLook(page, folder, file) {
   await page.keyboard.press('Space');
   await expect(page.locator('#ql')).toBeVisible();
   await expect(page.locator('#ql-stage img').first()).toHaveJSProperty('complete', true);
+  // 開啟時有一小段縮放動畫，動畫中量到的位置會偏移幾個像素，等它跑完再量
+  await page.locator('#ql').evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
 }
 
 /** 在元素中心（加上偏移）滾動滑鼠滾輪 */
@@ -115,7 +117,8 @@ test('clicking a zoomed image keeps Quick Look open', async ({ page }) => {
 test('clicking the empty area beside a zoomed-out image still closes Quick Look', async ({ page }) => {
   await quickLook(page, 'spine/char', 'new1.png');
   const box = await stage(page).boundingBox();
-  await page.mouse.click(box.x + 20, box.y + box.height / 2);
+  // 點左上角的空白：垂直正中央的左右兩側是「上一張 / 下一張」按鈕
+  await page.mouse.click(box.x + 20, box.y + 20);
   await expect(page.locator('#ql')).toBeHidden();
 });
 

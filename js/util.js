@@ -21,6 +21,7 @@
     theme: 'gitfinder.theme',
     autoOpen: 'gitfinder.autoOpen',
     sidebarCollapsed: 'gitfinder.sidebarCollapsed',
+    rate: 'gitfinder.rate',
   });
 
 

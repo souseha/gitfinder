@@ -61,10 +61,13 @@
     const token = el.token.value.trim();
     if (!token) return;
     store.set(KEYS.token, token);
+    GF.github.forgetRate();
     await GF.apiCache.clear();
     el.token.value = '';
     renderTokenStatus();
     A.toast(t('toast.tokenSaved'));
+    // 能不能看私人倉庫跟著 token 變：目前開著的倉庫重新載入
+    A.reloadRepo();
   }
 
   el.tokenSave.addEventListener('click', saveToken);
@@ -78,9 +81,11 @@
   el.tokenClear.addEventListener('click', async () => {
     el.token.value = '';
     store.remove(KEYS.token);
+    GF.github.forgetRate();
     await GF.apiCache.clear();
     renderTokenStatus();
     A.toast(t('toast.tokenCleared'));
+    A.reloadRepo();
   });
 
   el.dialog.addEventListener('close', () => {

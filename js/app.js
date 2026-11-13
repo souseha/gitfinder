@@ -449,15 +449,17 @@
     return { data: Object.freeze({ branch: res.branch, tree: T.buildTree(res.entries), truncated: res.truncated }), path: res.path };
   }
 
-  async function openRepo(target) {
+  /** @param {{ refresh?: boolean }} [opts] refresh：略過所有快取，重新向 GitHub 要一次 */
+  async function openRepo(target, { refresh = false } = {}) {
     const seq = ++loadSeq;
     QL.close();
     setState({ loading: true }, { content: !state.tree });
     try {
       let retried = false;
-      let { data, path } = fromCache(target);
+      let { data, path } = refresh ? { data: null, path: target.path || '' } : fromCache(target);
       if (!data) {
         const loaded = await loadTarget(target, {
+          refresh,
           onRetry: (n, total) => {
             retried = true;
             if (seq === loadSeq) toast(t('toast.retrying', { n, total }), 'info', 15000);
@@ -506,12 +508,23 @@
     return true;
   }
 
-  const openRecent = (entry) =>
+  const openRecent = (entry, opts) =>
     entry && openRepo({
       owner: entry.owner, name: entry.name, branch: entry.branch || null, path: entry.path || '',
       // PR 用編號開啟（重新整理後最多 10 分鐘就會看到新的 push）；commit 則固定在記下的 sha
       ...(entry.pull ? { pull: entry.pull } : entry.commit && { commit: entry.commit }),
-    });
+    }, opts);
+
+  /** 從 GitHub 重新載入目前的倉庫（剛 push 的內容、換了 token 之後） */
+  function reloadRepo() {
+    const { repo } = state;
+    if (!repo) return;
+    const commit = repo.commit;
+    let target = { owner: repo.owner, name: repo.name, branch: repo.branch, path: state.cwd ? state.cwd.path : '' };
+    if (commit && commit.pull) target = { ...target, branch: null, pull: commit.pull.number };
+    else if (commit) target = { ...target, branch: null, commit: commit.sha };
+    openRepo(target, { refresh: true });
+  }
 
   /* ---------- 導覽 ---------- */
   function navigate(dir, { select: sel = null } = {}) {
@@ -682,7 +695,7 @@
     get state() { return state; },
     effectiveView, navList, itemFilter, selectedNodes, setState, select, toggleSelect, rangeSelect, selectAll, setPicked,
     navigate, toggleOverview, openNode, openQuickLook, toggleExpand, setView, goBack, goForward, goUp, goHome,
-    openRepo, openFromInput, openRecent, findRecent, removeRecent, moveRecent, getRecents,
+    openRepo, openFromInput, openRecent, reloadRepo, findRecent, removeRecent, moveRecent, getRecents,
     renderSidebar, renderContent, renderChrome, toast, dom, persistLater,
     gridCols: () => (vview.layout ? vview.layout.cols : 1), virtualRects: () => vview.rects(), relayout: () => vview.relayout(),
   });

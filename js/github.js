@@ -77,6 +77,24 @@
       limit: Number(res.headers.get('x-ratelimit-limit')),
       reset: Number(res.headers.get('x-ratelimit-reset')),
     });
+    // 存起來：重新整理後全部從本機快取載入、沒打 API 時，也看得到剩多少
+    store.set(KEYS.rate, rate);
+  }
+
+  /** 換 token 後額度上限不同（60 / 5000），舊的數字不能再顯示 */
+  function forgetRate() {
+    rate = null;
+    store.remove(KEYS.rate);
+  }
+
+  /** 上次 GitHub 告知的額度；格式不對或已經過了重置時間就不算數 */
+  function savedRate() {
+    const saved = store.get(KEYS.rate, null);
+    if (!saved || typeof saved !== 'object') return null;
+    const { remaining, limit, reset } = saved;
+    if (![remaining, limit, reset].every(Number.isFinite)) return null;
+    if (reset * 1000 <= Date.now()) return null;
+    return Object.freeze({ remaining, limit, reset });
   }
 
   function errorFor(res) {
@@ -137,7 +155,9 @@
    *   refresh：略過快取直接問 GitHub（結果仍會存起來）
    */
   async function api(path, { onRetry, maxAge, refresh = false } = {}) {
-    if (maxAge && !refresh) {
+    // 用 sha 指定的內容不會變，重新載入也照用快取，不白花額度
+    const skipCache = refresh && maxAge !== CACHE_AGE.immutable;
+    if (maxAge && !skipCache) {
       const cached = await readCached(API + path, maxAge);
       if (cached) return cached;
     }
@@ -150,7 +170,9 @@
       const url = attempt === 0 ? API + path : `${API}${path}${sep}_=${Date.now()}`;
       let res;
       try {
-        res = await fetch(url, { headers, cache: attempt === 0 ? 'default' : 'reload' });
+        // 重新載入時連瀏覽器的 HTTP 快取（GitHub 給 60 秒）也要向 GitHub 確認，304 不扣額度
+        const firstCache = skipCache ? 'no-cache' : 'default';
+        res = await fetch(url, { headers, cache: attempt === 0 ? firstCache : 'reload' });
       } catch {
         throw new Error(GF.i18n.t('err.network'));
       }
@@ -204,12 +226,12 @@
    * 先比對預設分支，否則由短到長逐一嘗試，第一個存在的就是分支。
    */
   async function resolveRef(base, refPath, opts) {
-    const def = await fetchDefaultBranch(base);
+    const def = await fetchDefaultBranch(base, { refresh: !!opts.refresh });
     if (refPath === def || refPath.startsWith(`${def}/`)) {
       return { branch: def, path: refPath.slice(def.length + 1), tree: await fetchTree(base, def, opts) };
     }
     const candidates = refCandidates(refPath);
-    const cached = await cachedRef(base, candidates);
+    const cached = opts.refresh ? null : await cachedRef(base, candidates);
     if (cached) return cached;
     for (const { ref, path } of candidates) {
       try {
@@ -223,7 +245,7 @@
 
   /** 記住的預設分支可能已經改名：抓不到時重新查一次預設分支 */
   async function fetchDefaultTree(base, path, opts) {
-    const def = await fetchDefaultBranch(base);
+    const def = await fetchDefaultBranch(base, { refresh: !!opts.refresh });
     try {
       return { branch: def, path, tree: await fetchTree(base, def, opts) };
     } catch (err) {
@@ -467,6 +489,6 @@
   }
 
   GF.github = Object.freeze({
-    parseRepoInput, parseRoute, routeUrl, fetchRepo, fetchCommit, fetchPull, rawUrl, fileUrl, previousUrl, thumbUrl, previousThumbUrl, webUrl, getRate: () => rate,
+    parseRepoInput, parseRoute, routeUrl, fetchRepo, fetchCommit, fetchPull, rawUrl, fileUrl, previousUrl, thumbUrl, previousThumbUrl, webUrl, getRate: () => rate || savedRate(), savedRate, forgetRate,
   });
 })(window.GF);

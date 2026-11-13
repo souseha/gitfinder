@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GitFinder</title>
+  <script>
+    // 在 CSS 載入前套用主題，避免閃爍
+    try {
+      const theme = JSON.parse(localStorage.getItem('gitfinder.theme'));
+      if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+    } catch { /* 使用系統主題 */ }
+  </script>
+  <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/icons/favicon-light-32.png" sizes="32x32" type="image/png" media="(prefers-color-scheme: light)">
+  <link rel="icon" href="/icons/favicon-dark-32.png" sizes="32x32" type="image/png" media="(prefers-color-scheme: dark)">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="sidebar" id="sidebar">
+    <button class="brand" id="btn-home" type="button" data-i18n-tip="tb.home">
+      <svg class="brand-icon" viewBox="0 0 64 64" aria-hidden="true">
+        <rect class="bi-tile" width="64" height="64" rx="14"/>
+        <rect class="bi-border" x="1" y="1" width="62" height="62" rx="13" fill="none" stroke-width="2"/>
+        <path class="bi-glyph" d="M9 19a4 4 0 0 1 4-4h10.6a4 4 0 0 1 3 1.4l3 3.6H51a4 4 0 0 1 4 4v24a4 4 0 0 1-4 4H13a4 4 0 0 1-4-4z"/>
+        <g class="bi-cut" fill="none" stroke-width="4" stroke-linecap="round"><path d="M22 30v14"/><path d="M42 30c0 10-20 5-20 14"/></g>
+        <g class="bi-tile"><circle cx="22" cy="30" r="4.5"/><circle cx="22" cy="44" r="4.5"/><circle cx="42" cy="30" r="4.5"/></g>
+      </svg>
+      <span>GitFinder</span>
+    </button>
+    <form class="open-form" id="open-form" autocomplete="off">
+      <input id="repo-input" type="text" data-i18n-ph="sidebar.inputPh" spellcheck="false">
+      <button type="submit" data-i18n="common.open" data-i18n-tip="sidebar.openTip"></button>
+    </form>
+    <div class="side-section">
+      <div class="side-title" data-i18n="sidebar.repos"></div>
+      <ul class="repo-list" id="repo-list"></ul>
+    </div>
+    <div class="side-footer">
+      <button id="btn-settings" class="settings-btn" type="button">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <span data-i18n="sidebar.settings"></span>
+      </button>
+      <a class="source-link" href="https://github.com/souseha/gitfinder" target="_blank" rel="noopener noreferrer" data-i18n-tip="source.tip">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 6 3 10l4 4M13 6l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span data-i18n="source.label"></span>
+      </a>
+      <span id="rate" class="rate"></span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="toolbar">
+      <button class="tb-btn" id="btn-sidebar" type="button" data-i18n-tip="tb.sidebar">
+        <svg viewBox="0 0 20 20"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7.5 3.5v13" stroke="currentColor" stroke-width="1.5"/><path d="M4.6 6.8h1.2M4.6 9.2h1.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      </button>
+      <div class="nav-btns">
+        <button class="tb-btn" id="btn-back" type="button" data-i18n-tip="tb.back">
+          <svg viewBox="0 0 20 20"><path d="M12.5 4.5 7 10l5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="tb-btn" id="btn-fwd" type="button" data-i18n-tip="tb.fwd">
+          <svg viewBox="0 0 20 20"><path d="M7.5 4.5 13 10l-5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="title" id="title">GitFinder</div>
+      <div class="spacer"></div>
+      <input type="range" id="icon-size" class="size-slider" min="56" max="240" step="4" data-i18n-tip="tb.iconSize">
+      <button class="tb-btn toggle" id="btn-images" type="button" data-i18n-tip="tb.imagesOnly">
+        <svg viewBox="0 0 20 20"><rect x="2.5" y="4" width="15" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="7" cy="8.2" r="1.5" fill="currentColor"/><path d="m3 15 4.5-4.5 3 3 2.5-2.5L17 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="seg" id="view-seg" role="group">
+        <button type="button" data-view="icon" data-i18n-tip="tb.viewIcon">
+          <svg viewBox="0 0 20 20"><rect x="3" y="3" width="6" height="6" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="11" y="3" width="6" height="6" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="3" y="11" width="6" height="6" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="11" y="11" width="6" height="6" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+        </button>
+        <button type="button" data-view="list" data-i18n-tip="tb.viewList">
+          <svg viewBox="0 0 20 20"><path d="M7 5h10M7 10h10M7 15h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="3.6" cy="5" r="1.1" fill="currentColor"/><circle cx="3.6" cy="10" r="1.1" fill="currentColor"/><circle cx="3.6" cy="15" r="1.1" fill="currentColor"/></svg>
+        </button>
+        <button type="button" data-view="column" data-i18n-tip="tb.viewColumn">
+          <svg viewBox="0 0 20 20"><rect x="2.5" y="3.5" width="15" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7.5 3.5v13M12.5 3.5v13" stroke="currentColor" stroke-width="1.5"/></svg>
+        </button>
+      </div>
+      <label class="search">
+        <svg viewBox="0 0 20 20"><circle cx="8.5" cy="8.5" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m12.5 12.5 4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <input id="search" type="search" data-i18n-ph="tb.searchPh" spellcheck="false" autocomplete="off">
+      </label>
+    </header>
+    <div class="progress" aria-hidden="true"></div>
+    <section class="content" id="content" tabindex="0"></section>
+    <footer class="pathbar">
+      <div class="crumbs" id="crumbs"></div>
+      <div class="status" id="status"></div>
+    </footer>
+  </main>
+</div>
+
+<div class="ql hidden" id="ql" role="dialog" aria-modal="true">
+  <div class="ql-bar">
+    <button class="ql-btn" id="ql-close" type="button" data-i18n-tip="ql.close">
+      <svg viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    </button>
+    <div class="ql-heading">
+      <div class="ql-title" id="ql-title"></div>
+      <div class="ql-meta" id="ql-meta"></div>
+    </div>
+    <button class="ql-btn" id="ql-dl" type="button" data-i18n-tip="ql.download">
+      <svg viewBox="0 0 20 20"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <a class="ql-btn ql-link" id="ql-gh" target="_blank" rel="noopener noreferrer" data-i18n-tip="ql.openGh">
+      <svg viewBox="0 0 20 20"><path d="M11 3h6v6M17 3l-8 8M14 12v4a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </a>
+  </div>
+  <div class="ql-stage" id="ql-stage"></div>
+  <button class="ql-nav prev" id="ql-prev" type="button" data-i18n-tip="ql.prev">
+    <svg viewBox="0 0 20 20"><path d="M12.5 4.5 7 10l5.5 5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <button class="ql-nav next" id="ql-next" type="button" data-i18n-tip="ql.next">
+    <svg viewBox="0 0 20 20"><path d="M7.5 4.5 13 10l-5.5 5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <div class="ql-strip" id="ql-strip"></div>
+</div>
+
+<dialog id="settings" class="dialog">
+  <form method="dialog">
+    <h3 data-i18n="settings.title"></h3>
+    <div class="set-row">
+      <span class="set-label" data-i18n="settings.theme"></span>
+      <div class="seg seg-text" id="theme-seg">
+        <button type="button" data-theme-opt="system" data-i18n="settings.system"></button>
+        <button type="button" data-theme-opt="light" data-i18n="settings.light"></button>
+        <button type="button" data-theme-opt="dark" data-i18n="settings.dark"></button>
+      </div>
+    </div>
+    <div class="set-row">
+      <label class="set-label" for="lang-select" data-i18n="settings.language"></label>
+      <select id="lang-select"></select>
+    </div>
+    <hr>
+    <h4>GitHub Token</h4>
+    <p data-i18n-html="token.desc"></p>
+    <p class="note" data-i18n="token.note"></p>
+    <div class="token-row">
+      <input id="token-input" type="password" data-i18n-ph="token.ph" autocomplete="off" spellcheck="false">
+      <button type="button" id="token-clear" class="danger" data-i18n="token.clear"></button>
+    </div>
+    <menu>
+      <span class="spacer"></span>
+      <button value="cancel" type="submit" data-i18n="common.cancel"></button>
+      <button value="save" type="submit" class="primary" data-i18n="common.save"></button>
+    </menu>
+  </form>
+</dialog>
+
+<div class="toast hidden" id="toast" role="status"></div>
+
+<div class="ctx hidden" id="ctx" role="menu"></div>
+
+<div class="dl hidden" id="dl" role="status">
+  <div class="dl-text" id="dl-text"></div>
+  <div class="dl-bar"><div class="dl-fill" id="dl-fill"></div></div>
+  <button class="dl-cancel" id="dl-cancel" type="button" data-i18n="common.cancel"></button>
+</div>
+
+<script src="/js/i18n.js"></script>
+<script src="/js/util.js"></script>
+<script src="/js/github.js"></script>
+<script src="/js/tree.js"></script>
+<script src="/js/virtual.js"></script>
+<script src="/js/views.js"></script>
+<script src="/js/download.js"></script>
+<script src="/js/quicklook.js"></script>
+<script src="/js/app.js"></script>
+<script src="/js/actions.js"></script>
+<script src="/js/tooltip.js"></script>
+<script src="/js/marquee.js"></script>
+<script src="/js/settings.js"></script>
+<script src="/js/contextmenu.js"></script>
+<script src="/js/events.js"></script>
+</body>
+</html>

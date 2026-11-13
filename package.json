@@ -1,0 +1,28 @@
+{
+  "name": "gitfinder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "像 Finder 一樣瀏覽 GitHub 倉庫的檔案與圖片",
+  "scripts": {
+    "dev": "serve . -s -l 5178",
+    "start": "serve . -s -l 5178",
+    "build": "rm -rf dist && mkdir dist && cp -R index.html styles.css js icons LICENSE dist/ && cp icons/favicon.ico dist/",
+    "deploy": "pnpm build && wrangler deploy",
+    "preview": "wrangler dev",
+    "test": "vitest run && playwright test",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0",
+    "@vitest/coverage-v8": "^5.1.0",
+    "fflate": "^0.8.3",
+    "happy-dom": "^21.0.4",
+    "serve": "^14.2.4",
+    "vitest": "^5.1.0",
+    "wrangler": "^4.161.0"
+  },
+  "license": "MIT"
+}

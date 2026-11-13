@@ -1,0 +1,19 @@
+// 部署範例：複製成 wrangler.jsonc 後填入自己的設定（wrangler.jsonc 已被 .gitignore 排除）
+//   cp wrangler.example.jsonc wrangler.jsonc
+//   pnpm run deploy
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gitfinder",
+  "compatibility_date": "2026-11-10",
+  "assets": {
+    "directory": "./dist",
+    // 未知路徑回傳 index.html，讓 /owner/repo/tree/... 這類網址可以直接打開
+    "not_found_handling": "single-page-application"
+  },
+  // 關閉 <account>.workers.dev 與預覽網址，只用自訂網域對外
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "gitfinder.example.com", "custom_domain": true }
+  ]
+}

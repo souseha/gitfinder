@@ -1,0 +1,15 @@
+node_modules/
+.DS_Store
+.claude/
+dist/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
+wrangler.jsonc
+coverage/
+test-results/
+playwright-report/

@@ -1,6 +1,7 @@
 // 端對端測試用的假倉庫：攔截 GitHub API、raw 檔案、縮圖代理與 fflate CDN，不連外網
 import { test as base, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { crc32, deflateSync } from 'node:zlib';
 import { resolve } from 'node:path';
 
 // fflate 的 package exports 沒有開放 umd 路徑，直接從 node_modules 讀檔
@@ -11,6 +12,34 @@ const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
   'base64',
 );
+
+/** 產生單色的 PNG（測試縮放／拖曳需要比畫面大的圖） */
+function solidPng(width, height) {
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type), data]);
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr.set([8, 2, 0, 0, 0], 8); // 8-bit RGB
+  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(width * 3, 0x80)]);
+  const pixels = Buffer.concat(Array.from({ length: height }, () => row));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr), chunk('IDAT', deflateSync(pixels)), chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+/** commit 範例裡這兩個檔案用大圖，給快速查看的縮放測試用 */
+const BIG_PNG = solidPng(1200, 900);
+const BIG_IMAGES = /(^|\/)(mod|new1|b)\.png$/;
+/** 改名的 ui/a.png → ui/b.png 前後尺寸不同（1800×900 → 1200×900），測「尺寸不同時各自縮放」 */
+const WIDE_PNG = solidPng(1800, 900);
+const WIDE_IMAGES = /^ui\/a\.png$/;
 
 export const ICON_COUNT = 2500;
 export const REPO = { owner: 'demo', name: 'assets', branch: 'main' };
@@ -89,7 +118,10 @@ async function mockGitHub(page) {
     const [, ref, path] = decodeURIComponent(new URL(route.request().url()).pathname).match(/^\/demo\/assets\/([^/]+)\/(.*)$/);
     if (ref === COMMIT_SHA && path === 'docs/readme.md') return route.fulfill({ body: COMMIT_README, contentType: 'text/plain' });
     if (TEXT[path] != null) return route.fulfill({ body: TEXT[path], contentType: 'text/plain' });
-    return route.fulfill({ body: PNG, contentType: 'image/png' });
+    let body = PNG;
+    if (WIDE_IMAGES.test(path)) body = WIDE_PNG;
+    else if (BIG_IMAGES.test(path)) body = BIG_PNG;
+    return route.fulfill({ body, contentType: 'image/png' });
   });
   await page.route('https://wsrv.nl/**', (route) => route.fulfill({ body: PNG, contentType: 'image/webp' }));
   await page.route('https://cdn.jsdelivr.net/npm/fflate**', (route) =>

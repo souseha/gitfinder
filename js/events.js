@@ -227,6 +227,7 @@
     if (k === ' ' || k === 'Escape') QL.close();
     else if (k === 'ArrowRight' || k === 'ArrowDown') QL.step(1);
     else if (k === 'ArrowLeft' || k === 'ArrowUp') QL.step(-1);
+    else if (k === '0') QL.resetZoom();
     else return;
     e.preventDefault();
   }

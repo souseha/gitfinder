@@ -85,6 +85,8 @@
     const fig = document.createElement('figure');
     const cap = document.createElement('figcaption');
     cap.textContent = t(`ql.${side}`);
+    // 載入後補上尺寸，前後尺寸不同時一眼看得出來（也說明為什麼兩邊不同步縮放）
+    img.addEventListener('load', () => { cap.textContent = `${t(`ql.${side}`)} · ${img.naturalWidth} × ${img.naturalHeight}`; }, { once: true });
     fig.append(img, cap);
     return fig;
   }
@@ -97,12 +99,16 @@
     const before = previousUrl(ctx.repo, node);
     if (!before) {
       el.stage.replaceChildren(img);
+      GF.qlZoom.setTargets([img]);
       return;
     }
+    const beforeImg = makeImage(node, before);
     const wrap = document.createElement('div');
     wrap.className = 'ql-compare';
-    wrap.append(compareSide(makeImage(node, before), 'before'), compareSide(img, 'after'));
+    wrap.append(compareSide(beforeImg, 'before'), compareSide(img, 'after'));
     el.stage.replaceChildren(wrap);
+    // 前後兩張共用同一個縮放狀態：一起放大、一起拖曳，方便對照同一個位置
+    GF.qlZoom.setTargets([beforeImg, img]);
   }
 
   async function showText(node) {
@@ -147,7 +153,7 @@
   function show() {
     const node = ctx.list[ctx.index];
     if (textAbort) textAbort.abort();
-    el.stage.classList.remove('zoom');
+    GF.qlZoom.clear();
     el.title.textContent = node.name;
     el.meta.textContent = metaText(node);
     el.gh.href = webUrl(ctx.repo, node);
@@ -176,16 +182,15 @@
     const btn = e.target.closest('[data-i]');
     if (btn) go(Number(btn.dataset.i));
   });
+  // 縮放改用滾輪（quicklook-zoom.js），單擊圖片不再切換原尺寸；點背景關閉
   el.stage.addEventListener('click', (e) => {
-    // 比較檢視有兩張圖，放大會讓兩張重疊，所以只在單張圖時切換
-    if (e.target.classList.contains('ql-img') && !e.target.closest('.ql-compare')) el.stage.classList.toggle('zoom');
-    else if (e.target === el.stage) close();
+    if (e.target === el.stage) close();
   });
   // 觸控滑動切換
   let touchX = null;
   el.stage.addEventListener('touchstart', (e) => { touchX = e.touches[0].clientX; }, { passive: true });
   el.stage.addEventListener('touchend', (e) => {
-    if (touchX == null) return;
+    if (touchX == null || GF.qlZoom.isZoomed()) return;
     const dx = e.changedTouches[0].clientX - touchX;
     touchX = null;
     if (Math.abs(dx) > 50) step(dx < 0 ? 1 : -1);
@@ -195,5 +200,5 @@
 
   const nodeAt = (i) => (ctx ? ctx.list[i] || null : null);
 
-  GF.quicklook = Object.freeze({ open, close, isOpen, step, current, nodeAt });
+  GF.quicklook = Object.freeze({ open, close, isOpen, step, current, nodeAt, resetZoom: () => GF.qlZoom.reset() });
 })(window.GF);

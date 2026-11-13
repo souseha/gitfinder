@@ -22,6 +22,7 @@
 - **搜尋**：搜尋整個倉庫的檔名。用空白分隔多個關鍵字；含 `/` 的關鍵字會比對完整路徑。
 - **只顯示圖片**：隱藏圖片以外的檔案，以及沒有圖片的資料夾。
 - **Commit 檢視**：打開單一 commit，只列出這次變動的檔案，並標示新增、刪除、改名或修改。可以依狀態篩選（改名算在「修改」裡；「新增」加上「只顯示圖片」就是這次新增的圖），刪除的圖會從上一個版本取得，修改的圖在快速查看裡並排比較前後兩版。從「依資料夾」切到「全部攤平」，會把整個 commit 攤平成一張格子，每個檔案下面標出所在資料夾，修改的圖在格子裡就左右並排前後兩版。
+- **PR 檢視**：打開 pull request，用同樣的方式看它變動的檔案。比較的「前」是 merge base，和 GitHub 顯示的差異一致；資訊列會標出 PR 編號、標題，以及開啟中、已合併或已關閉。來自 fork 的 PR 也能看。
 - **多選**：<kbd>⌘</kbd>/<kbd>Ctrl</kbd> + 點擊、<kbd>Shift</kbd> + 點擊、<kbd>Shift</kbd> + 方向鍵、<kbd>⌘</kbd><kbd>A</kbd>，以及在空白處拖曳框選（三種檢視都支援）。
 - **下載**：下載單一檔案，或在瀏覽器內把資料夾、多個選取項目打包成 zip，並保留資料夾結構。
 - **右鍵選單**：在檔案、資料夾、空白處、路徑列、側邊欄或快速查看上按右鍵，可以打開、下載、複製名稱／路徑／圖片／連結等。
@@ -48,6 +49,7 @@ https://github.com/owner/repo
 https://github.com/owner/repo/tree/branch/path/to/folder
 https://github.com/owner/repo/blob/branch/path/to/file.png
 https://github.com/owner/repo/commit/<sha>   （.patch、.diff 連結也可以）
+https://github.com/owner/repo/pull/<number>  （/files 等分頁也可以）
 ```
 
 App 的網址結構和 GitHub 一樣，只要換掉網域就能互通：

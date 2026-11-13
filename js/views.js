@@ -156,7 +156,7 @@
       .slice(0, MAX_WELCOME_RECENTS)
       .map((r) => {
         const key = recentKey(r);
-        const commit = typeof r.commit === 'string' ? (r.commitTitle || `@${r.commit.slice(0, 7)}`) : '';
+        const commit = typeof r.commit === 'string' ? GF.commit.recentLabel(r) : '';
         const where = [commit || r.branch, r.path].filter(Boolean).join(' · ');
         return (
           `<button type="button" class="recent-row" data-recent="${esc(key)}">` +

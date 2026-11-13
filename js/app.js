@@ -33,8 +33,12 @@
 
   const treeCache = new Map();
   const repoKey = (r) => `${r.owner}/${r.name}`.toLowerCase();
-  /** commit 只含變動檔案，和同一個 sha 的整棵樹分開快取 */
+  /** commit 只含變動檔案，和同一個 sha 的整棵樹分開快取；PR 用編號 */
   const commitCacheKey = (r, sha) => `${repoKey(r)}#commit@${sha}`;
+  const pullCacheKey = (r, number) => `${repoKey(r)}#pull@${number}`;
+  const changeCacheKey = (r, commit) => (commit.pull ? pullCacheKey(r, commit.pull.number) : commitCacheKey(r, commit.sha));
+  /** 路徑列與側邊欄顯示的版本：PR 用編號，commit 用短 sha */
+  const changeLabel = (commit) => (commit.pull ? `#${commit.pull.number}` : GF.commit.shortSha(commit.sha));
 
   /** 只給 selected 時，picked / anchor 自動跟著變成單選 */
   function normalize(patch) {
@@ -230,7 +234,7 @@
     if (!rows.length) {
       let msg = t('empty.folder');
       if (state.query) msg = t('empty.search', { q: esc(state.query) });
-      else if (isOverview()) msg = t('empty.noCommitChanges');
+      else if (isOverview()) msg = t(state.repo.commit.pull ? 'empty.noPullChanges' : 'empty.noCommitChanges');
       else if (state.changeFilter !== 'all') msg = t('empty.noChanges');
       else if (state.imagesOnly) msg = t('empty.noImages');
       c.innerHTML = `<div class="empty">${msg}</div>`;
@@ -266,7 +270,7 @@
     dom.crumbs.innerHTML = chain
       .map((n, i) => {
         if (i === 0) {
-          return `<button class="crumb" data-crumb=""><span class="ri-icon">${repoIcon()}</span><span>${esc(state.repo.owner)}/${esc(state.repo.name)}</span><span class="branch-chip">${esc(state.repo.commit ? GF.commit.shortSha(state.repo.commit.sha) : state.repo.branch)}</span></button>`;
+          return `<button class="crumb" data-crumb=""><span class="ri-icon">${repoIcon()}</span><span>${esc(state.repo.owner)}/${esc(state.repo.name)}</span><span class="branch-chip">${esc(state.repo.commit ? changeLabel(state.repo.commit) : state.repo.branch)}</span></button>`;
         }
         const icon = n.type === 'dir' ? folderIcon() : fileIcon(n.label);
         return `${sep}<button class="crumb" data-crumb="${esc(n.path)}">${icon}<span>${esc(n.name)}</span></button>`;
@@ -343,6 +347,7 @@
     const entry = {
       owner: repo.owner, name: repo.name, branch: repo.branch, path: path || '', openedAt: Date.now(),
       ...(repo.commit && { commit: repo.commit.sha, commitTitle: repo.commit.message.split('\n')[0] }),
+      ...(repo.commit && repo.commit.pull && { pull: repo.commit.pull.number }),
     };
     const key = recentKey(entry);
     const exists = list.some((r) => recentKey(r) === key);
@@ -371,15 +376,18 @@
     if (!state.tree) renderContent();
   }
 
-  /** commit 項目的小字：有訊息就顯示訊息，否則顯示短 sha */
-  const recentCommitLabel = (r) => (typeof r.commitTitle === 'string' && r.commitTitle ? r.commitTitle : `@${GF.commit.shortSha(r.commit)}`);
+  /** commit / PR 項目的小字：有訊息就顯示訊息，否則顯示短 sha；PR 前面加編號 */
+  const recentCommitLabel = (r) => GF.commit.recentLabel(r);
 
   /** 用 SVG 畫叉叉：文字的「×」會受字型基線影響而偏離圓心 */
   const REMOVE_ICON = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 2.5l5 5M7.5 2.5l-5 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
 
   function renderSidebar() {
     const list = getRecents();
-    const current = state.repo ? recentKey({ ...state.repo, commit: state.repo.commit && state.repo.commit.sha }) : '';
+    const commit = state.repo && state.repo.commit;
+    const current = state.repo
+      ? recentKey({ ...state.repo, commit: commit && commit.sha, pull: commit && commit.pull && commit.pull.number })
+      : '';
     dom.repoList.innerHTML = list.length
       ? list
           .map((r) => {
@@ -412,6 +420,7 @@
    */
   function fromCache(target) {
     const prefix = `${repoKey(target)}@`;
+    if (target.pull) return { data: treeCache.get(pullCacheKey(target, target.pull)) || null, path: target.path || '' };
     if (target.commit) return { data: treeCache.get(commitCacheKey(target, target.commit)) || null, path: target.path || '' };
     if (target.branch) return { data: treeCache.get(prefix + target.branch) || null, path: target.path || '' };
     if (!target.refPath) return { data: null, path: '' };
@@ -425,12 +434,15 @@
     return { data: null, path: '' };
   }
 
-  /** 分支：抓整棵檔案樹；commit：只抓這次變動的檔案，branch 設成完整 sha */
+  /** 分支：抓整棵檔案樹；commit / PR：只抓變動的檔案，branch 設成（head）完整 sha */
   async function loadTarget(target, opts) {
-    if (target.commit) {
-      const res = await gh.fetchCommit(target, opts);
+    if (target.commit || target.pull) {
+      const res = target.pull ? await gh.fetchPull(target, opts) : await gh.fetchCommit(target, opts);
       const tree = T.buildTree(res.entries);
-      const commit = Object.freeze({ sha: res.sha, parentSha: res.parentSha, message: res.message, counts: tree.root.changes });
+      const commit = Object.freeze({
+        sha: res.sha, parentSha: res.parentSha, message: res.message, counts: tree.root.changes,
+        ...(res.pull && { pull: Object.freeze({ ...res.pull }) }),
+      });
       return { data: Object.freeze({ branch: res.sha, tree, truncated: res.truncated, commit }), path: target.path || '' };
     }
     const res = await gh.fetchRepo(target, opts);
@@ -452,7 +464,7 @@
           },
         });
         data = loaded.data;
-        treeCache.set(data.commit ? commitCacheKey(target, data.commit.sha) : `${repoKey(target)}@${data.branch}`, data);
+        treeCache.set(data.commit ? changeCacheKey(target, data.commit) : `${repoKey(target)}@${data.branch}`, data);
         path = loaded.path;
       }
       if (seq !== loadSeq) return;
@@ -497,7 +509,8 @@
   const openRecent = (entry) =>
     entry && openRepo({
       owner: entry.owner, name: entry.name, branch: entry.branch || null, path: entry.path || '',
-      ...(entry.commit && { commit: entry.commit }),
+      // PR 用編號開啟（重新整理後最多 10 分鐘就會看到新的 push）；commit 則固定在記下的 sha
+      ...(entry.pull ? { pull: entry.pull } : entry.commit && { commit: entry.commit }),
     });
 
   /* ---------- 導覽 ---------- */

@@ -79,7 +79,9 @@
     if (!entry) return [];
     const repo = {
       owner: entry.owner, name: entry.name, branch: entry.branch || 'HEAD',
-      ...(typeof entry.commit === 'string' && { commit: { sha: entry.commit, parentSha: null } }),
+      ...(typeof entry.commit === 'string' && {
+        commit: { sha: entry.commit, parentSha: null, ...(entry.pull && { pull: { number: entry.pull } }) },
+      }),
     };
     const url = webUrl(repo, null);
     return [

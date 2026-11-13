@@ -341,3 +341,135 @@ describe('fetchCommit when GitHub cannot compute the diff', () => {
     expect(spy.mock.calls.some(([u]) => String(u).includes('/git/trees/'))).toBe(false);
   });
 });
+
+describe('pull request URLs', () => {
+  const expected = (pull, path = '') => ({ owner: 'a', name: 'b', branch: null, path, refPath: '', pull });
+  it.each([
+    ['https://github.com/a/b/pull/12', 12],
+    ['https://github.com/a/b/pull/12/files', 12],
+    ['https://github.com/a/b/pull/12/commits', 12],
+    ['https://github.com/a/b/pull/12/changes', 12],
+    ['https://github.com/a/b/pull/12/checks', 12],
+    ['https://github.com/a/b/pull/12/files#diff-abc', 12],
+    ['github.com/a/b/pull/345?w=1', 345],
+    ['a/b/pull/7', 7],
+  ])('parses %s', (input, pull) => {
+    expect(gh.parseRepoInput(input)).toEqual(expected(pull));
+  });
+
+  it.each(['a/b/pull/abc', 'a/b/pull/0', 'a/b/pull/', 'a/b/pulls'])('does not treat %j as a pull request', (input) => {
+    expect(gh.parseRepoInput(input)).not.toHaveProperty('pull');
+  });
+
+  it('parses an app route with a folder', () => {
+    expect(gh.parseRoute('/a/b/pull/12/spine/char')).toEqual(expected(12, 'spine/char'));
+  });
+
+  it('keeps a folder named like a GitHub tab in app routes', () => {
+    expect(gh.parseRoute('/a/b/pull/12/files')).toEqual(expected(12, 'files'));
+  });
+
+  const HEAD = 'f'.repeat(40);
+  const repo = { owner: 'a', name: 'b', branch: HEAD, commit: { sha: HEAD, parentSha: 'e'.repeat(40), pull: { number: 12 } } };
+
+  it('builds pull request routes', () => {
+    expect(gh.routeUrl(repo, '')).toBe('/a/b/pull/12');
+    expect(gh.routeUrl(repo, 'x/a b')).toBe('/a/b/pull/12/x/a%20b');
+  });
+
+  it('links the pull request page, and files at the head commit', () => {
+    expect(gh.webUrl(repo, null)).toBe('https://github.com/a/b/pull/12');
+    expect(gh.webUrl(repo, { path: 'x/y.png', type: 'file' })).toBe(`https://github.com/a/b/blob/${HEAD}/x/y.png`);
+  });
+});
+
+describe('fetchPull', () => {
+  const HEAD = 'f'.repeat(40);
+  const BASE = 'b'.repeat(40);
+  const MERGE_BASE = 'e'.repeat(40);
+  const pull = (extra = {}) => ({
+    number: 12, title: 'Add icons', state: 'open', merged_at: null,
+    head: { sha: HEAD }, base: { sha: BASE }, ...extra,
+  });
+  const file = (filename, status, extra = {}) => ({ filename, status, changes: 1, ...extra });
+
+  function mockPull({ info = pull(), pages = [[file('a.png', 'added')]], trees = {} } = {}) {
+    return vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      const u = new URL(String(url));
+      if (u.pathname === '/repos/a/b/pulls/12') return json(info);
+      if (u.pathname === '/repos/a/b/pulls/12/files') return json(pages[Number(u.searchParams.get('page')) - 1] || []);
+      if (u.pathname === `/repos/a/b/compare/${BASE}...${HEAD}`) return json({ merge_base_commit: { sha: MERGE_BASE } });
+      const tree = u.pathname.match(/^\/repos\/a\/b\/git\/trees\/(\w+)$/);
+      if (tree && trees[tree[1]]) return json(trees[tree[1]]);
+      return json({ message: 'Not Found' }, 404);
+    });
+  }
+
+  it('compares the head commit with the merge base', async () => {
+    mockPull({ pages: [[file('a.png', 'added'), file('b.png', 'renamed', { previous_filename: 'old/b.png' })]] });
+    const res = await gh.fetchPull({ owner: 'a', name: 'b', pull: 12 });
+    expect(res).toMatchObject({ sha: HEAD, parentSha: MERGE_BASE, message: 'Add icons', truncated: false, pull: { number: 12, state: 'open' } });
+    expect(res.entries.map((e) => [e.path, e.change.status, e.change.previousPath])).toEqual([
+      ['a.png', 'added', null],
+      ['b.png', 'renamed', 'old/b.png'],
+    ]);
+  });
+
+  it.each([
+    [{ state: 'open', merged_at: null }, 'open'],
+    [{ state: 'closed', merged_at: null }, 'closed'],
+    [{ state: 'closed', merged_at: '2026-01-01T00:00:00Z' }, 'merged'],
+  ])('reports the state of %j as %s', async (extra, expectedState) => {
+    mockPull({ info: pull(extra) });
+    const res = await gh.fetchPull({ owner: 'a', name: 'b', pull: 12 });
+    expect(res.pull.state).toBe(expectedState);
+  });
+
+  it('pages through changed files until a short page', async () => {
+    const full = Array.from({ length: 100 }, (_, i) => file(`f${i}.png`, 'added'));
+    const spy = mockPull({ pages: [full, [file('last.png', 'added')]] });
+    const res = await gh.fetchPull({ owner: 'a', name: 'b', pull: 12 });
+    expect(res.entries).toHaveLength(101);
+    expect(res.truncated).toBe(false);
+    expect(spy.mock.calls.filter(([u]) => String(u).includes('/files')).length).toBe(2);
+  });
+
+  it('stops at the 3000 files GitHub can list and marks the result incomplete', async () => {
+    const full = Array.from({ length: 100 }, (_, i) => file(`f${i}.png`, 'added'));
+    mockPull({ pages: Array.from({ length: 31 }, () => full) });
+    const res = await gh.fetchPull({ owner: 'a', name: 'b', pull: 12 });
+    expect(res.entries).toHaveLength(3000);
+    expect(res.truncated).toBe(true);
+  });
+
+  it('stops paging once every changed file is listed', async () => {
+    const full = Array.from({ length: 100 }, (_, i) => file(`f${i}.png`, 'added'));
+    const spy = mockPull({ info: pull({ changed_files: 100 }), pages: [full] });
+    await gh.fetchPull({ owner: 'a', name: 'b', pull: 12 });
+    expect(spy.mock.calls.filter(([u]) => String(u).includes('/files')).length).toBe(1);
+  });
+
+  it('still lists the files when the merge base cannot be found', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      const u = new URL(String(url));
+      if (u.pathname === '/repos/a/b/pulls/12') return json(pull());
+      if (u.pathname === '/repos/a/b/pulls/12/files') return json([file('a.png', 'added')]);
+      return json({ message: 'Not Found' }, 404);
+    });
+    const res = await gh.fetchPull({ owner: 'a', name: 'b', pull: 12 });
+    expect(res.parentSha).toBeNull();
+    expect(res.entries).toHaveLength(1);
+  });
+
+  it('compares trees when GitHub returns no files', async () => {
+    mockPull({
+      pages: [[]],
+      trees: {
+        [HEAD]: { tree: [{ path: 'new.png', type: 'blob', sha: '1', size: 1 }] },
+        [MERGE_BASE]: { tree: [] },
+      },
+    });
+    const res = await gh.fetchPull({ owner: 'a', name: 'b', pull: 12 });
+    expect(res.entries.map((e) => [e.path, e.change.status])).toEqual([['new.png', 'added']]);
+  });
+});

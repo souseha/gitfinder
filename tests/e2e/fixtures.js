@@ -95,6 +95,15 @@ function commitResponse(url, sha) {
   };
 }
 
+// Pull request：head 是 COMMIT_SHA，「前」是 merge base（PARENT_SHA），不是 base 分支最新的 commit
+export const PULL_NUMBER = 12;
+export const PULL_TITLE = 'Add new assets';
+export const PULL_BASE_SHA = 'b'.repeat(40);
+const pullResponse = () => ({
+  number: PULL_NUMBER, title: PULL_TITLE, state: 'open', merged_at: null, changed_files: COMMIT_FILES.length,
+  head: { sha: COMMIT_SHA }, base: { sha: PULL_BASE_SHA },
+});
+
 /** 模擬 GitHub 的額度 header（瀏覽器要能讀到，所以一併開放 CORS） */
 export const rateHeaders = (remaining, limit = 60) => ({
   'access-control-allow-origin': '*',
@@ -110,6 +119,13 @@ async function mockGitHub(page) {
     if (url.pathname === '/repos/demo/assets') return route.fulfill({ json: { default_branch: 'main' }, headers: rateHeaders(58) });
     if (url.pathname === '/repos/demo/assets/git/trees/main') return route.fulfill({ json: { tree: TREE, truncated: false }, headers: rateHeaders(57) });
     if (url.pathname === `/repos/demo/assets/git/trees/${COMMIT_SHA}`) return route.fulfill({ json: { tree: TREE, truncated: false } });
+    if (url.pathname === `/repos/demo/assets/pulls/${PULL_NUMBER}`) return route.fulfill({ json: pullResponse() });
+    if (url.pathname === `/repos/demo/assets/pulls/${PULL_NUMBER}/files`) {
+      return route.fulfill({ json: url.searchParams.get('page') === '1' ? COMMIT_FILES : [] });
+    }
+    if (url.pathname === `/repos/demo/assets/compare/${PULL_BASE_SHA}...${COMMIT_SHA}`) {
+      return route.fulfill({ json: { merge_base_commit: { sha: PARENT_SHA } } });
+    }
     const commit = url.pathname.match(/^\/repos\/demo\/assets\/commits\/([0-9a-f]{40})$/);
     if (commit && [COMMIT_SHA, NEXT_COMMIT_SHA].includes(commit[1])) return route.fulfill({ json: commitResponse(url, commit[1]) });
     return route.fulfill({ status: 404, json: { message: 'Not Found' } });

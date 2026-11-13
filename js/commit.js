@@ -1,4 +1,4 @@
-/* 單一 commit 檢視：路徑列上方的 commit 資訊與狀態篩選按鈕 */
+/* 單一 commit / PR 檢視：路徑列上方的資訊與狀態篩選按鈕 */
 (function (GF) {
   'use strict';
 
@@ -32,6 +32,25 @@
     return `<span class="seg seg-text commit-scope" role="group">${btn('folders', !flat)}${btn('flat', flat)}</span>`;
   }
 
+  /** 最近清單的小字：PR 是「#12 標題」，commit 是標題或 @短 sha */
+  function recentLabel(r) {
+    const title = typeof r.commitTitle === 'string' && r.commitTitle ? r.commitTitle : '';
+    if (r.pull) return title ? `#${r.pull} ${title}` : `#${r.pull}`;
+    return title || `@${shortSha(r.commit)}`;
+  }
+
+  /** 連到 GitHub 的那段：PR 顯示編號與狀態，commit 顯示短 sha */
+  function idLink(state, commit) {
+    const tip = t(commit.pull ? 'pull.openGh' : 'commit.openGh');
+    const text = commit.pull ? `#${commit.pull.number}` : shortSha(commit.sha);
+    const link =
+      `<a class="commit-sha" href="${esc(GF.github.webUrl(state.repo, null))}" target="_blank" rel="noopener noreferrer" ` +
+      `data-tip="${esc(tip)}" aria-label="${esc(tip)}">${esc(text)}</a>`;
+    if (!commit.pull) return link;
+    const st = commit.pull.state;
+    return `${link}<span class="pull-state pull-${esc(st)}">${esc(t(`pull.${st}`))}</span>`;
+  }
+
   /** 依目前狀態畫出（或隱藏）commit 資訊列 */
   function render(state) {
     const bar = document.getElementById('commit-bar');
@@ -46,8 +65,7 @@
     bar.innerHTML =
       scopeSwitch(!!state.overview) +
       '<span class="commit-divider" aria-hidden="true"></span>' +
-      `<a class="commit-sha" href="${esc(GF.github.webUrl(state.repo, null))}" target="_blank" rel="noopener noreferrer" ` +
-      `data-tip="${esc(t('commit.openGh'))}" aria-label="${esc(t('commit.openGh'))}">${esc(shortSha(commit.sha))}</a>` +
+      idLink(state, commit) +
       `<span class="commit-msg" title="${esc(commit.message)}">${esc(firstLine(commit.message))}</span>` +
       `<span class="commit-filters" role="group">${FILTERS.map((k) => filterButton(k, counts, state.changeFilter)).join('')}</span>`;
   }
@@ -60,5 +78,5 @@
     else if (btn.dataset.changeFilter) GF.app.setState({ changeFilter: btn.dataset.changeFilter, selected: null });
   });
 
-  GF.commit = Object.freeze({ render, shortSha, FILTERS });
+  GF.commit = Object.freeze({ render, shortSha, recentLabel, FILTERS });
 })(window.GF);

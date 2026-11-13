@@ -172,6 +172,28 @@ describe('GitHub requests reuse the cache', () => {
     expect(store.size).toBe(0);
   });
 
+  it('keeps only the merge base of a pull request comparison', async () => {
+    const store = installFakeCaches();
+    const HEAD = 'f'.repeat(40);
+    const BASE = 'b'.repeat(40);
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      const u = new URL(String(url));
+      if (u.pathname === '/repos/a/b/pulls/12') return json({ number: 12, title: 't', state: 'open', head: { sha: HEAD }, base: { sha: BASE } });
+      if (u.pathname === '/repos/a/b/pulls/12/files') return json([{ filename: 'a.png', status: 'added' }]);
+      if (u.pathname === `/repos/a/b/compare/${BASE}...${HEAD}`) {
+        return json({ merge_base_commit: { sha: SHA }, files: Array.from({ length: 300 }, () => ({ patch: 'x'.repeat(100) })) });
+      }
+      return json({}, 404);
+    });
+    await GF.github.fetchPull({ owner: 'a', name: 'b', pull: 12 });
+    const cachedCompare = [...store.entries()].find(([url]) => url.includes('/compare/'));
+    expect(cachedCompare).toBeDefined();
+    expect((await cachedCompare[1].clone().text()).length).toBeLessThan(200);
+    const again = await GF.github.fetchPull({ owner: 'a', name: 'b', pull: 12 });
+    expect(again.parentSha).toBe(SHA);
+    expect(spy).toHaveBeenCalledTimes(3);
+  });
+
   it('does not cache failed responses', async () => {
     installFakeCaches();
     let calls = 0;

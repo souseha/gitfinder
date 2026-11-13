@@ -24,13 +24,27 @@
     return SHA_RE.test(sha) ? sha.toLowerCase() : null;
   }
 
+  const PULL_NUMBER_RE = /^[1-9][0-9]*$/;
+  /** GitHub PR 頁面的分頁（/pull/12/files 等），不是倉庫裡的路徑 */
+  const PULL_TABS = new Set(['files', 'commits', 'checks', 'changes']);
+
+  /** pull/<number>[/<路徑>]：GitHub 網址的分頁名稱丟掉，App 自己的網址則一律當路徑 */
+  function parsePull(rest, isGitHubUrl) {
+    if (!PULL_NUMBER_RE.test(rest[0] || '')) return null;
+    const after = rest.slice(1);
+    const path = isGitHubUrl && PULL_TABS.has(after[0]) ? '' : after.join('/');
+    return { pull: Number(rest[0]), path };
+  }
+
   /**
    * 解析 GitHub 風格的路徑片段：owner/repo[/tree|blob/<ref 與路徑>]。
    * 分支名稱可能含「/」，無法只靠字串分辨哪段是分支、哪段是路徑，
    * 所以把 tree/blob 之後的整段放在 refPath，由 fetchRepo 實際查詢後再拆開。
-   * @returns {{ owner: string, name: string, branch: null, path: '', refPath: string } | null}
+   * @param {string[]} segments
+   * @param {{ isGitHubUrl?: boolean }} [opts] 使用者貼上的 GitHub 網址（PR 分頁名稱要丟掉）
+   * @returns {{ owner: string, name: string, branch: null, path: string, refPath: string, commit?: string, pull?: number } | null}
    */
-  function parseSegments(segments) {
+  function parseSegments(segments, { isGitHubUrl = false } = {}) {
     const parts = segments.filter(Boolean).map(safeDecode);
     if (parts.length < 2) return null;
     const [owner, rawName, kind, ...rest] = parts;
@@ -38,16 +52,18 @@
     if (!OWNER_RE.test(owner) || !NAME_RE.test(name)) return null;
     const commit = kind === 'commit' ? commitSha(rest[0]) : null;
     if (commit) return { owner, name, branch: null, path: rest.slice(1).join('/'), refPath: '', commit };
+    const pull = kind === 'pull' ? parsePull(rest, isGitHubUrl) : null;
+    if (pull) return { owner, name, branch: null, path: pull.path, refPath: '', pull: pull.pull };
     const deep = (kind === 'tree' || kind === 'blob') && rest.length > 0;
     return { owner, name, branch: null, path: '', refPath: deep ? rest.join('/') : '' };
   }
 
-  /** 支援 owner/repo、github.com/owner/repo、/tree/<branch>/<path>、/blob/<branch>/<file> */
+  /** 支援 owner/repo、github.com/owner/repo、/tree/<branch>/<path>、/blob/<branch>/<file>、/commit/<sha>、/pull/<n> */
   function parseRepoInput(raw) {
     const s = String(raw || '').trim().replace(/[?#].*$/, '').replace(/\/+$/, '');
     if (!s) return null;
     const url = s.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/(.+)$/i);
-    return parseSegments((url ? url[1] : s).split('/'));
+    return parseSegments((url ? url[1] : s).split('/'), { isGitHubUrl: true });
   }
 
   /** 解析 App 自己的網址路徑，例如 /owner/repo/tree/main/assets */
@@ -316,6 +332,73 @@
     return { sha: first.sha, parentSha, message: (first.commit && first.commit.message) || '', entries, truncated };
   }
 
+  /* ---------- Pull request ---------- */
+  const PULL_PAGE_SIZE = 100; // GitHub 每頁最多 100 個檔案
+  const MAX_PULL_PAGES = 30; // GitHub 最多只列 3000 個檔案
+
+  const pullState = (info) => (info.merged_at ? 'merged' : info.state === 'closed' ? 'closed' : 'open');
+
+  /**
+   * 逐頁抓 PR 變動的檔案（PR 會再 push，所以用分支的快取時間）。
+   * 已經抓滿 changed_files 個就停，免得檔案數剛好是 100 的倍數時多打一次空頁。
+   */
+  async function fetchPullFiles(base, changedFiles, opts) {
+    const files = [];
+    for (let page = 1; page <= MAX_PULL_PAGES; page += 1) {
+      const data = await api(`${base}/files?per_page=${PULL_PAGE_SIZE}&page=${page}`, { ...opts, maxAge: CACHE_AGE.branchTree });
+      const list = Array.isArray(data) ? data : [];
+      files.push(...list);
+      const listedAll = Number.isInteger(changedFiles) && files.length >= changedFiles;
+      if (list.length < PULL_PAGE_SIZE || listedAll) return { files, truncated: false };
+    }
+    return { files, truncated: true };
+  }
+
+  /**
+   * merge base：compare 的回應含所有檔案的 patch，可能好幾 MB，所以只把 sha 存進快取。
+   * 找不到（例如兩邊沒有共同的歷史）就回傳 null，照樣列出檔案，只是沒有「之前」可以比。
+   */
+  async function fetchMergeBase(repoBase, baseSha, headSha, opts) {
+    const path = `${repoBase}/compare/${baseSha}...${headSha}?per_page=1`;
+    const cached = await readCached(API + path, CACHE_AGE.immutable);
+    if (cached && typeof cached.sha === 'string') return cached.sha;
+    try {
+      const sha = (await api(path, opts)).merge_base_commit.sha;
+      await GF.apiCache.write(API + path, JSON.stringify({ sha }));
+      return sha;
+    } catch (err) {
+      if (err.status !== 404 && err.status !== 422) throw err;
+      return null;
+    }
+  }
+
+  /**
+   * PR 的差異和 GitHub 一樣以 merge base 為「前」：用 base 分支最新的 commit 比，
+   * 會把 base 分支之後才進來的變動也算進去。
+   * fork 來的 PR 也用原倉庫：head commit 會進到原倉庫，用 sha 就讀得到。
+   * @returns {Promise<{ sha: string, parentSha: string|null, message: string, entries: object[], truncated: boolean,
+   *   pull: { number: number, state: 'open'|'closed'|'merged' } }>}
+   */
+  async function fetchPull({ owner, name, pull }, opts = {}) {
+    const repoBase = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+    const base = `${repoBase}/pulls/${encodeURIComponent(pull)}`;
+    const info = await api(base, { ...opts, maxAge: CACHE_AGE.branchTree });
+    const head = info.head.sha;
+    const mergeBase = await fetchMergeBase(repoBase, info.base.sha, head, opts);
+    const listed = await fetchPullFiles(base, info.changed_files, opts);
+    let entries = listed.files.map(toEntry).filter(Boolean);
+    let { truncated } = listed;
+    if (!entries.length && mergeBase && info.changed_files !== 0) {
+      const diff = await diffTrees(repoBase, head, mergeBase, opts);
+      entries = diff.entries;
+      truncated = diff.truncated;
+    }
+    return {
+      sha: head, parentSha: mergeBase, message: info.title || '', entries, truncated,
+      pull: { number: info.number, state: pullState(info) },
+    };
+  }
+
   const encPath = (p) => p.split('/').map(encodeURIComponent).join('/');
 
   const rawAt = (repo, ref, path) =>
@@ -366,19 +449,24 @@
   /** App 內的網址，與 GitHub 相同的結構：/owner/repo/tree/<branch>/<path> */
   function routeUrl(repo, path) {
     const base = `/${encPath(repo.owner)}/${encPath(repo.name)}`;
-    if (repo.commit) return `${base}/commit/${encPath(repo.commit.sha)}${path ? `/${encPath(path)}` : ''}`;
+    const tail = path ? `/${encPath(path)}` : '';
+    if (repo.commit && repo.commit.pull) return `${base}/pull/${repo.commit.pull.number}${tail}`;
+    if (repo.commit) return `${base}/commit/${encPath(repo.commit.sha)}${tail}`;
     if (!repo.branch) return base;
     return `${base}/tree/${encPath(repo.branch)}${path ? `/${encPath(path)}` : ''}`;
   }
 
   function webUrl(repo, node) {
     const base = `https://github.com/${encPath(repo.owner)}/${encPath(repo.name)}`;
-    if (!node || !node.path) return repo.commit ? `${base}/commit/${encPath(repo.commit.sha)}` : `${base}/tree/${encPath(repo.branch)}`;
+    if (!node || !node.path) {
+      if (repo.commit && repo.commit.pull) return `${base}/pull/${repo.commit.pull.number}`;
+      return repo.commit ? `${base}/commit/${encPath(repo.commit.sha)}` : `${base}/tree/${encPath(repo.branch)}`;
+    }
     const kind = node.type === 'dir' ? 'tree' : 'blob';
     return `${base}/${kind}/${encPath(refFor(repo, node))}/${encPath(node.path)}`;
   }
 
   GF.github = Object.freeze({
-    parseRepoInput, parseRoute, routeUrl, fetchRepo, fetchCommit, rawUrl, fileUrl, previousUrl, thumbUrl, previousThumbUrl, webUrl, getRate: () => rate,
+    parseRepoInput, parseRoute, routeUrl, fetchRepo, fetchCommit, fetchPull, rawUrl, fileUrl, previousUrl, thumbUrl, previousThumbUrl, webUrl, getRate: () => rate,
   });
 })(window.GF);

@@ -30,6 +30,7 @@
   --chg-removed: #b4232c; --chg-removed-bg: #fbe1e2;
   --chg-renamed: #8a5a00; --chg-renamed-bg: #fbedcc;
   --chg-modified: #0b5cc9; --chg-modified-bg: #dde9fb;
+  --pull-merged: #7a3fc8; --pull-merged-bg: #efe3fb;
   color-scheme: light;
 }
 
@@ -77,6 +78,7 @@ select option, select optgroup { background-color: var(--bg); color: var(--text)
     --chg-removed: #ff8a90; --chg-removed-bg: #46201f;
     --chg-renamed: #f2c35b; --chg-renamed-bg: #43341a;
     --chg-modified: #8ab8ff; --chg-modified-bg: #1d2f4d;
+    --pull-merged: #c7a4ff; --pull-merged-bg: #33244d;
     color-scheme: dark;
   }
 }
@@ -110,6 +112,7 @@ select option, select optgroup { background-color: var(--bg); color: var(--text)
   --chg-removed: #ff8a90; --chg-removed-bg: #46201f;
   --chg-renamed: #f2c35b; --chg-renamed-bg: #43341a;
   --chg-modified: #8ab8ff; --chg-modified-bg: #1d2f4d;
+  --pull-merged: #c7a4ff; --pull-merged-bg: #33244d;
 }
 
 /* ===== 基礎 ===== */
@@ -672,6 +675,11 @@ body.dragging { user-select: none; -webkit-user-select: none; cursor: default; }
 }
 .commit-sha:hover { text-decoration-thickness: 2px; }
 .commit-sha:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* PR 狀態：開啟中綠、已合併紫、已關閉紅，和 GitHub 一致 */
+.pull-state { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.pull-open { color: var(--chg-added); background: var(--chg-added-bg); }
+.pull-merged { color: var(--pull-merged); background: var(--pull-merged-bg); }
+.pull-closed { color: var(--chg-removed); background: var(--chg-removed-bg); }
 .commit-msg { flex: 1 1 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .commit-filters { display: flex; gap: 4px; flex-wrap: wrap; }
 .chg-filter {

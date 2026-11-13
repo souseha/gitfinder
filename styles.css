@@ -657,11 +657,12 @@ body.dragging { user-select: none; -webkit-user-select: none; cursor: default; }
   padding: 6px 14px; border-bottom: 1px solid var(--border); background: var(--toolbar); font-size: 12px;
 }
 .commit-bar.hidden { display: none; }
+/* 平常就是藍色加底線，一看就知道可以點到 GitHub */
 .commit-sha {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted);
-  text-decoration: none; padding: 1px 5px; margin: 0 -5px; border-radius: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent);
+  text-decoration: underline; text-underline-offset: 2px;
 }
-.commit-sha:hover { color: var(--accent); background: var(--hover); text-decoration: underline; }
+.commit-sha:hover { text-decoration-thickness: 2px; }
 .commit-sha:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .commit-msg { flex: 1 1 200px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .commit-filters { display: flex; gap: 4px; flex-wrap: wrap; }

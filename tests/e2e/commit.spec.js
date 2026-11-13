@@ -230,3 +230,19 @@ test('the commit sha links to the commit on GitHub', async ({ page }) => {
   await expect(link).toHaveAttribute('rel', /noopener/);
   await expect(link).toHaveAttribute('aria-label', 'Open this commit on GitHub');
 });
+
+test('the commit sha looks like a link before hovering', async ({ page }) => {
+  await openCommit(page);
+  const style = await page.locator('#commit-bar a.commit-sha').evaluate((a) => {
+    const cs = getComputedStyle(a);
+    const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+    const probe = document.createElement('span');
+    probe.style.color = accent;
+    document.body.append(probe);
+    const accentRgb = getComputedStyle(probe).color;
+    probe.remove();
+    return { underline: cs.textDecorationLine, color: cs.color, accentRgb };
+  });
+  expect(style.underline).toContain('underline');
+  expect(style.color).toBe(style.accentRgb);
+});

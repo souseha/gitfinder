@@ -41,6 +41,11 @@
 select { color-scheme: inherit; }
 select option, select optgroup { background-color: var(--bg); color: var(--text); }
 
+/*
+ * 只有圖示的按鈕一律是正方形（寬高相同），圖示置中，由 tests/e2e/icon-buttons.spec.js 檢查。
+ * 瀏覽器預設會給 button 左右內距，按鈕一窄就把圖示擠偏，所以統一歸零、交給 grid 置中。
+ */
+.tb-btn, .seg button, .foot-btn, .ql-btn, .ql-nav, .ri-remove { padding: 0; }
 /* 深色：跟隨系統（未手動指定淺色時）或手動指定深色 */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -175,7 +180,7 @@ kbd {
 .side-footer { display: flex; align-items: center; gap: 4px; padding: 0 4px; }
 .side-footer .spacer { flex: 1; }
 .foot-btn {
-  width: 28px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 6px;
+  width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 6px;
   background: none; color: var(--muted); cursor: pointer; text-decoration: none;
 }
 .foot-btn:hover { background: var(--hover); color: var(--text); }
@@ -201,7 +206,7 @@ kbd {
 }
 .nav-btns { display: flex; gap: 2px; }
 .tb-btn {
-  width: 30px; height: 28px; display: grid; place-items: center;
+  width: 28px; height: 28px; display: grid; place-items: center;
   border: 0; border-radius: 6px; background: none; cursor: pointer; color: var(--text);
 }
 .tb-btn svg { width: 18px; height: 18px; }
@@ -223,7 +228,7 @@ kbd {
 
 .seg { display: flex; padding: 2px; border-radius: 8px; background: var(--seg-bg); gap: 1px; }
 .seg button {
-  width: 34px; height: 24px; display: grid; place-items: center;
+  width: 24px; height: 24px; display: grid; place-items: center;
   border: 0; border-radius: 6px; background: none; cursor: pointer; color: var(--muted);
 }
 .seg button svg { width: 17px; height: 17px; }
@@ -444,7 +449,7 @@ body.ql-open { overflow: hidden; }
 .ql-other svg { width: 160px; height: 160px; }
 .ql-nav {
   position: absolute; top: 50%; transform: translateY(-50%);
-  width: 40px; height: 64px; border-radius: 10px; border: 0; cursor: pointer;
+  width: 44px; height: 44px; border-radius: 10px; border: 0; cursor: pointer;
   background: rgba(255, 255, 255, 0.07); color: #fff; display: grid; place-items: center;
 }
 .ql-nav:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); }

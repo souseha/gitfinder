@@ -49,3 +49,34 @@ test('clearing the token returns to the no-token state', async ({ page }) => {
   await expect(page.locator('#token-input')).toHaveValue('');
   expect(await savedToken(page)).toBeNull();
 });
+
+/** 相對亮度（WCAG），用來確認下拉選項的文字和底色有足夠對比 */
+const luminance = (rgb) => {
+  const [r, g, b] = rgb.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number).map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+
+for (const theme of ['dark', 'light']) {
+  test(`the language dropdown stays readable in the ${theme} theme`, async ({ page }) => {
+    await openSettings(page);
+    await page.locator(`[data-theme-opt="${theme}"]`).click();
+    const styles = await page.locator('#lang-select').evaluate((select) => ({
+      scheme: getComputedStyle(select).colorScheme,
+      options: [...select.options].map((o) => ({ bg: getComputedStyle(o).backgroundColor, fg: getComputedStyle(o).color })),
+    }));
+    expect(styles.scheme).toBe(theme);
+    for (const { bg, fg } of styles.options) {
+      expect(bg).not.toBe('rgba(0, 0, 0, 0)');
+      expect(contrast(bg, fg)).toBeGreaterThanOrEqual(4.5);
+      if (theme === 'dark') expect(luminance(bg)).toBeLessThan(0.2);
+      else expect(luminance(bg)).toBeGreaterThan(0.6);
+    }
+  });
+}

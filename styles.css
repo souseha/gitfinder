@@ -33,6 +33,14 @@
   color-scheme: light;
 }
 
+/*
+ * 原生下拉選單：展開的選項清單由瀏覽器／作業系統另外繪製，不會套用 select 本身的半透明底色。
+ * 選項要明確給不透明的底色與文字色，並讓 color-scheme 跟著主題（含手動切換），
+ * 否則深色模式下會出現「白底＋淺色字」的清單。
+ */
+select { color-scheme: inherit; }
+select option, select optgroup { background-color: var(--bg); color: var(--text); }
+
 /* 深色：跟隨系統（未手動指定淺色時）或手動指定深色 */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {

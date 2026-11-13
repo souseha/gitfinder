@@ -246,3 +246,11 @@ test('the commit sha looks like a link before hovering', async ({ page }) => {
   expect(style.underline).toContain('underline');
   expect(style.color).toBe(style.accentRgb);
 });
+
+test('the repository icon in the path bar is centered with its text', async ({ page }) => {
+  await openCommit(page);
+  const crumb = page.locator('#crumbs .crumb').first();
+  const [icon, text] = await Promise.all([crumb.locator('.ri-icon svg').boundingBox(), crumb.locator('span:not(.ri-icon):not(.branch-chip)').first().boundingBox()]);
+  const middle = (b) => b.y + b.height / 2;
+  expect(Math.abs(middle(icon) - middle(text))).toBeLessThanOrEqual(1);
+});

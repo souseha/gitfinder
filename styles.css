@@ -159,7 +159,7 @@ kbd {
 }
 .repo-item:hover { background: var(--hover); }
 .repo-item.active { background: var(--sel-soft); }
-.ri-icon { width: 16px; height: 16px; flex: none; color: var(--accent); }
+.ri-icon { width: 16px; height: 16px; flex: none; color: var(--accent); display: grid; place-items: center; }
 .ri-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .ri-name, .ri-owner { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ri-owner { font-size: 11px; color: var(--muted); }

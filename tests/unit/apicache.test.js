@@ -1,5 +1,6 @@
 import { beforeAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { loadCore } from '../helpers/load.js';
+import { installFakeCaches } from '../helpers/fakeCaches.js';
 
 let GF;
 beforeAll(() => {
@@ -12,32 +13,13 @@ afterEach(() => {
   delete globalThis.caches;
 });
 
-/** 只實作 App 用到的 Cache Storage 介面，用 Map 存放 */
-function installFakeCaches() {
-  const store = new Map();
-  const cache = {
-    match: async (url) => (store.has(url) ? store.get(url).clone() : undefined),
-    put: async (url, res) => {
-      store.set(url, res);
-    },
-    delete: async (url) => store.delete(url),
-    keys: async () => [...store.keys()].map((url) => ({ url })),
-  };
-  globalThis.caches = {
-    open: async () => cache,
-    delete: async () => {
-      store.clear();
-      return true;
-    },
-  };
-  return store;
-}
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-const TREE = { tree: [{ path: 'a.png', type: 'blob', size: 1 }], truncated: false };
 const SHA = 'a'.repeat(40);
+/** GitHub 用分支名稱回檔案樹時，sha 欄位是該分支最新的 commit sha */
+const TREE = { sha: SHA, tree: [{ path: 'a.png', type: 'blob', size: 1 }], truncated: false };
 const MINUTE = 60 * 1000;
 
 function mockApi(routes) {
@@ -97,16 +79,6 @@ describe('GitHub requests reuse the cache', () => {
     const again = await GF.github.fetchRepo({ owner: 'o', name: 'r', branch: 'main' });
     expect(again.entries).toHaveLength(1);
     expect(spy).toHaveBeenCalledTimes(1);
-  });
-
-  it('reloads a branch tree after ten minutes', async () => {
-    installFakeCaches();
-    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
-    const spy = mockApi({ '/repos/o/r/git/trees/main?recursive=1': () => json(TREE) });
-    await GF.github.fetchRepo({ owner: 'o', name: 'r', branch: 'main' });
-    now.mockReturnValue(1_000_000 + 10 * MINUTE + 1);
-    await GF.github.fetchRepo({ owner: 'o', name: 'r', branch: 'main' });
-    expect(spy).toHaveBeenCalledTimes(2);
   });
 
   it('keeps a tree addressed by a full sha much longer', async () => {
@@ -218,7 +190,7 @@ describe('GitHub requests reuse the cache', () => {
 
   it('falls back to GitHub when a cached body is not valid JSON', async () => {
     installFakeCaches();
-    await GF.apiCache.write('https://api.github.com/repos/o/r/git/trees/main?recursive=1', 'not json');
+    await GF.apiCache.write('https://api.github.com/repos/o/r/commits/main?gitfinder=head', 'not json');
     const spy = mockApi({ '/repos/o/r/git/trees/main?recursive=1': () => json(TREE) });
     const res = await GF.github.fetchRepo({ owner: 'o', name: 'r', branch: 'main' });
     expect(res.entries).toHaveLength(1);

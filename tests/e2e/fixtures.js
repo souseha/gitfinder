@@ -70,6 +70,8 @@ export const COMMIT_SHA = 'c'.repeat(40);
 export const NEXT_COMMIT_SHA = 'd'.repeat(40);
 export const NEXT_COMMIT_MESSAGE = 'feat: more assets';
 export const PARENT_SHA = 'e'.repeat(40);
+/** main 分支最新的 commit：GitHub 用分支名稱回檔案樹時，sha 欄位就是它 */
+export const MAIN_SHA = 'f'.repeat(40);
 export const COMMIT_MESSAGE = 'feat: assets update';
 export const COMMIT_README = '# Readme at the commit';
 const changed = (filename, status, previous_filename, changes = 0) => ({ filename, status, changes, ...(previous_filename && { previous_filename }) });
@@ -117,7 +119,8 @@ async function mockGitHub(page) {
   await page.route('https://api.github.com/**', (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === '/repos/demo/assets') return route.fulfill({ json: { default_branch: 'main' }, headers: rateHeaders(58) });
-    if (url.pathname === '/repos/demo/assets/git/trees/main') return route.fulfill({ json: { tree: TREE, truncated: false }, headers: rateHeaders(57) });
+    if (url.pathname === '/repos/demo/assets/git/trees/main') return route.fulfill({ json: { sha: MAIN_SHA, tree: TREE, truncated: false }, headers: rateHeaders(57) });
+    if (url.pathname === '/repos/demo/assets/commits/main') return route.fulfill({ body: MAIN_SHA, headers: rateHeaders(56) });
     if (url.pathname === `/repos/demo/assets/git/trees/${COMMIT_SHA}`) return route.fulfill({ json: { tree: TREE, truncated: false } });
     if (url.pathname === `/repos/demo/assets/pulls/${PULL_NUMBER}`) return route.fulfill({ json: pullResponse() });
     if (url.pathname === `/repos/demo/assets/pulls/${PULL_NUMBER}/files`) {

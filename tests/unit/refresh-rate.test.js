@@ -1,5 +1,6 @@
 import { beforeAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { loadCore } from '../helpers/load.js';
+import { installFakeCaches } from '../helpers/fakeCaches.js';
 
 let GF;
 beforeAll(() => {
@@ -10,19 +11,6 @@ afterEach(() => {
   localStorage.clear();
   delete globalThis.caches;
 });
-
-/** 只實作 App 用到的 Cache Storage 介面，用 Map 存放 */
-function installFakeCaches() {
-  const store = new Map();
-  const cache = {
-    match: async (url) => (store.has(url) ? store.get(url).clone() : undefined),
-    put: async (url, res) => { store.set(url, res); },
-    delete: async (url) => store.delete(url),
-    keys: async () => [...store.keys()].map((url) => ({ url })),
-  };
-  globalThis.caches = { open: async () => cache, delete: async () => { store.clear(); return true; } };
-  return store;
-}
 
 const json = (body, headers = {}) => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json', ...headers } });
 const TREE = { tree: [{ path: 'a.png', type: 'blob', size: 1 }], truncated: false };
@@ -41,7 +29,7 @@ describe('force refresh', () => {
     installFakeCaches();
     let version = 1;
     const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
-      json({ tree: [{ path: `v${version}.png`, type: 'blob', size: 1 }], truncated: false }));
+      json({ sha: String(version).repeat(40), tree: [{ path: `v${version}.png`, type: 'blob', size: 1 }], truncated: false }));
     await GF.github.fetchRepo({ owner: 'o', name: 'r', branch: 'main' });
     version = 2;
     await GF.github.fetchRepo({ owner: 'o', name: 'r', branch: 'main' }, { refresh: true });

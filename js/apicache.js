@@ -4,8 +4,11 @@
 
   const CACHE_NAME = 'gitfinder-api-v1';
   const SAVED_AT_HEADER = 'x-gitfinder-saved-at';
-  /** 大倉庫的檔案樹一份可能有好幾 MB，只留最近存的幾份 */
-  const MAX_ENTRIES = 20;
+  /**
+   * 大倉庫的檔案樹一份可能有好幾 MB，只留最近存的幾份。
+   * 每個分支佔兩筆：檔案樹本身，加上一筆很小的「分支最新 commit」記錄
+   */
+  const MAX_ENTRIES = 40;
 
   const isAvailable = () => typeof caches !== 'undefined';
   const savedAt = (res) => (res ? Number(res.headers.get(SAVED_AT_HEADER)) || 0 : 0);

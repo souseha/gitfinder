@@ -127,7 +127,7 @@ pnpm run deploy                            # 建置 dist/ 並執行 wrangler dep
 
 ## 限制與隱私
 
-- **API 次數上限**：沒有 Token 時，GitHub API 每個 IP 每小時只能呼叫 60 次，開一個倉庫會用掉 1～2 次。在「設定」加入 [Personal Access Token](https://github.com/settings/personal-access-tokens/new) 可以提高到 5000 次，公開倉庫不需要勾任何權限。Token 以明文存在瀏覽器的 `localStorage`，只會送到 `api.github.com`。
+- **API 次數上限**：沒有 Token 時，GitHub API 每個 IP 每小時只能呼叫 60 次，開一個倉庫會用掉 1～2 次。開過的分支會存在瀏覽器裡：30 分鐘內重開不花額度，之後只花 1 次確認有沒有新的 commit，沒有就繼續用存下來的檔案樹；想立刻看到最新內容，可以在右鍵選單選「從 GitHub 重新載入」。在「設定」加入 [Personal Access Token](https://github.com/settings/personal-access-tokens/new) 可以提高到 5000 次，公開倉庫不需要勾任何權限。Token 以明文存在瀏覽器的 `localStorage`，只會送到 `api.github.com`。
 - **超大倉庫**：檔案超過約 10 萬個或回應超過 7 MB 時，GitHub 只會回傳部分檔案樹，GitFinder 會顯示警告。
 - **縮圖會經過第三方**：你瀏覽的每張圖片網址都會送到 wsrv.nl。
 - **私有倉庫**：有 Token 時可以載入檔案樹，但圖片與下載無法使用，因為 `raw.githubusercontent.com` 這邊沒有帶授權。

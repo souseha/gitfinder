@@ -124,10 +124,12 @@
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const MINUTE = 60 * 1000;
-  /** 本機快取多久：分支會更新所以短；用完整 sha 指定的內容永遠不變 */
+  /** 本機快取多久：會更新的內容短；用完整 sha 指定的內容永遠不變 */
   const CACHE_AGE = Object.freeze({
     repoInfo: 60 * MINUTE,
-    branchTree: 10 * MINUTE,
+    /** 這段時間內直接相信記下的「分支最新 commit」，超過才花 1 次請求向 GitHub 確認 */
+    branchHead: 30 * MINUTE,
+    pull: 10 * MINUTE,
     immutable: 30 * 24 * 60 * MINUTE,
   });
   const FULL_SHA_RE = /^[0-9a-f]{40}$/i;
@@ -145,16 +147,19 @@
 
   /**
    * 5xx 為 GitHub 端錯誤，自動重試（有 token 四次，沒有三次）。
-   * 不送自訂 Accept header：實測超大倉庫（例如 3 萬個檔案）在瀏覽器帶 vnd.github+json 時
-   * 會穩定拿到被快取的 500，不帶則正常。重試時加上時間戳，避開 CDN 快取住的錯誤回應。
+   * 檔案樹不送自訂 Accept header：實測超大倉庫（例如 3 萬個檔案）在瀏覽器帶 vnd.github+json 時
+   * 會穩定拿到被快取的 500，不帶則正常（只有查分支最新 sha 時會指定 accept）。
+   * 重試時加上時間戳，避開 CDN 快取住的錯誤回應。
    */
   /**
    * @param {string} path
-   * @param {{ onRetry?: (attempt: number, total: number) => void, maxAge?: number, refresh?: boolean }} [opts]
+   * @param {{ onRetry?: (attempt: number, total: number) => void, maxAge?: number, refresh?: boolean, accept?: string, retry?: boolean }} [opts]
    *   maxAge：允許使用多舊的本機快取（毫秒）；不給就不讀也不存快取
    *   refresh：略過快取直接問 GitHub（結果仍會存起來）
+   *   accept：指定回應格式，回傳原始文字（不快取）
+   *   retry：false 時 5xx 不重試（手上已有可用的舊資料時，不讓使用者多等）
    */
-  async function api(path, { onRetry, maxAge, refresh = false } = {}) {
+  async function api(path, { onRetry, maxAge, refresh = false, accept, retry = true } = {}) {
     // 用 sha 指定的內容不會變，重新載入也照用快取，不白花額度
     const skipCache = refresh && maxAge !== CACHE_AGE.immutable;
     if (maxAge && !skipCache) {
@@ -164,13 +169,15 @@
     const headers = {};
     const token = store.get(KEYS.token, '');
     if (token) headers.Authorization = `Bearer ${token}`;
-    const delays = token ? RETRY_DELAYS : RETRY_DELAYS_NO_TOKEN;
+    if (accept) headers.Accept = accept;
+    const delays = !retry ? [] : token ? RETRY_DELAYS : RETRY_DELAYS_NO_TOKEN;
     for (let attempt = 0; ; attempt += 1) {
       const sep = path.includes('?') ? '&' : '?';
       const url = attempt === 0 ? API + path : `${API}${path}${sep}_=${Date.now()}`;
       let res;
       try {
-        // 重新載入時連瀏覽器的 HTTP 快取（GitHub 給 60 秒）也要向 GitHub 確認，304 不扣額度
+        // 重新載入時連瀏覽器的 HTTP 快取（GitHub 給 60 秒）也要向 GitHub 確認
+        // （實測 304 仍會扣 1 次額度，但不必重新下載內容）
         const firstCache = skipCache ? 'no-cache' : 'default';
         res = await fetch(url, { headers, cache: attempt === 0 ? firstCache : 'reload' });
       } catch {
@@ -179,10 +186,9 @@
       readRate(res);
       if (res.ok) {
         const text = await res.text();
+        if (accept) return text;
         const data = JSON.parse(text);
-        // 載入途中換了或清掉 token：這份內容可能是私人倉庫的，不能留下來
-        const sameToken = store.get(KEYS.token, '') === token;
-        if (maxAge && sameToken) await GF.apiCache.write(API + path, text);
+        if (maxAge && tokenUnchanged(token)) await GF.apiCache.write(API + path, text);
         return data;
       }
       if (res.status >= 500 && attempt < delays.length) {
@@ -194,12 +200,88 @@
     }
   }
 
+  /** 載入途中換了或清掉 token：拿到的內容可能是私人倉庫的，不能寫進快取 */
+  const tokenUnchanged = (token) => store.get(KEYS.token, '') === token;
+
   const MAX_REF_GUESSES = 6;
 
   const treePath = (base, ref) => `${base}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
-  const treeAge = (ref) => (FULL_SHA_RE.test(ref) ? CACHE_AGE.immutable : CACHE_AGE.branchTree);
 
-  const fetchTree = (base, ref, opts) => api(treePath(base, ref), { ...opts, maxAge: treeAge(ref) });
+  /* ---------- 分支的檔案樹：以 commit sha 為 key 長期保存 ---------- */
+  const SHA_MEDIA_TYPE = 'application/vnd.github.sha';
+  /** 記下「分支目前指到哪個 commit」的本機快取網址（不會真的被請求） */
+  const headKey = (base, ref) => `${API}${base}/commits/${encodeURIComponent(ref)}?gitfinder=head`;
+  const rememberHead = (base, ref, sha) => GF.apiCache.write(headKey(base, ref), JSON.stringify({ sha }));
+
+  /**
+   * 本機記得的分支檔案樹
+   * @param {number} maxAge 「分支最新 commit」的記錄可以多舊；檔案樹本身依 sha 存放，不會過期
+   * @returns {Promise<{ sha: string, tree: object } | null>}
+   */
+  async function storedBranchTree(base, ref, maxAge) {
+    const head = await readCached(headKey(base, ref), maxAge);
+    if (!head || !FULL_SHA_RE.test(head.sha || '')) return null;
+    const tree = await readCached(API + treePath(base, head.sha), CACHE_AGE.immutable);
+    return tree ? { sha: head.sha, tree } : null;
+  }
+
+  /** 分支最新的 commit sha（回應只有 40 個字元）；分支不存在時回傳 null */
+  async function latestSha(base, ref) {
+    try {
+      const text = await api(`${base}/commits/${encodeURIComponent(ref)}`, { accept: SHA_MEDIA_TYPE, retry: false });
+      const sha = text.trim();
+      return FULL_SHA_RE.test(sha) ? sha : null;
+    } catch (err) {
+      if (err.status === 404 || err.status === 422) return null;
+      throw err;
+    }
+  }
+
+  /**
+   * 用分支名稱抓檔案樹：GitHub 對這個網址通常已經組好，比用 sha 抓更不容易碰到 500。
+   * 回應的 sha 是分支最新的 commit，以它為 key 存起來（沒有 sha 就不存）
+   */
+  async function loadBranchTree(base, ref, opts) {
+    const token = store.get(KEYS.token, '');
+    const tree = await api(treePath(base, ref), { onRetry: opts.onRetry, refresh: opts.refresh });
+    if (tokenUnchanged(token) && FULL_SHA_RE.test(tree.sha || '')) {
+      await GF.apiCache.write(API + treePath(base, tree.sha), JSON.stringify(tree));
+      await rememberHead(base, ref, tree.sha);
+    }
+    return tree;
+  }
+
+  /**
+   * 分支：30 分鐘內直接用本機的樹（0 次請求）；超過就先問最新 sha（1 次），
+   * 沒變就繼續用，變了才重抓。重新載入時略過確認直接重抓。
+   * 完整 sha：內容不會變，照一般快取。
+   */
+  async function fetchTree(base, ref, opts = {}) {
+    if (FULL_SHA_RE.test(ref)) return api(treePath(base, ref), { ...opts, maxAge: CACHE_AGE.immutable });
+    if (opts.refresh) return loadBranchTree(base, ref, opts);
+    const fresh = await storedBranchTree(base, ref, CACHE_AGE.branchHead);
+    if (fresh) return fresh.tree;
+    const stale = await storedBranchTree(base, ref, Infinity);
+    return stale ? revalidate(base, ref, stale, opts) : loadBranchTree(base, ref, opts);
+  }
+
+  /** 記下的檔案樹過了 30 分鐘：問一次最新 sha，沒變就繼續用 */
+  async function revalidate(base, ref, stale, opts) {
+    const token = store.get(KEYS.token, '');
+    let latest;
+    try {
+      latest = await latestSha(base, ref);
+    } catch (err) {
+      // 額度用完、連不上或 GitHub 出錯：先給舊的樹，總比整個打不開好
+      console.warn('[gitfinder] could not check the branch, showing the saved tree', err);
+      return tokenUnchanged(token) ? stale.tree : loadBranchTree(base, ref, opts);
+    }
+    if (latest !== stale.sha || !tokenUnchanged(token)) return loadBranchTree(base, ref, opts);
+    await rememberHead(base, ref, stale.sha);
+    // 重新存一次，讓常用的樹不會因為存得早而先被淘汰
+    await GF.apiCache.write(API + treePath(base, stale.sha), JSON.stringify(stale.tree));
+    return stale.tree;
+  }
 
   /** 倉庫資訊只用來查預設分支，很少改變 */
   const fetchDefaultBranch = async (base, { refresh = false } = {}) =>
@@ -215,7 +297,9 @@
   /** 先看本機快取有沒有哪個候選分支的檔案樹，有就不必再花請求去猜 */
   async function cachedRef(base, candidates) {
     for (const c of candidates) {
-      const tree = await readCached(API + treePath(base, c.ref), treeAge(c.ref));
+      const tree = FULL_SHA_RE.test(c.ref)
+        ? await readCached(API + treePath(base, c.ref), CACHE_AGE.immutable)
+        : (await storedBranchTree(base, c.ref, CACHE_AGE.branchHead))?.tree;
       if (tree) return { branch: c.ref, path: c.path, tree };
     }
     return null;
@@ -367,7 +451,7 @@
   async function fetchPullFiles(base, changedFiles, opts) {
     const files = [];
     for (let page = 1; page <= MAX_PULL_PAGES; page += 1) {
-      const data = await api(`${base}/files?per_page=${PULL_PAGE_SIZE}&page=${page}`, { ...opts, maxAge: CACHE_AGE.branchTree });
+      const data = await api(`${base}/files?per_page=${PULL_PAGE_SIZE}&page=${page}`, { ...opts, maxAge: CACHE_AGE.pull });
       const list = Array.isArray(data) ? data : [];
       files.push(...list);
       const listedAll = Number.isInteger(changedFiles) && files.length >= changedFiles;
@@ -404,7 +488,7 @@
   async function fetchPull({ owner, name, pull }, opts = {}) {
     const repoBase = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
     const base = `${repoBase}/pulls/${encodeURIComponent(pull)}`;
-    const info = await api(base, { ...opts, maxAge: CACHE_AGE.branchTree });
+    const info = await api(base, { ...opts, maxAge: CACHE_AGE.pull });
     const head = info.head.sha;
     const mergeBase = await fetchMergeBase(repoBase, info.base.sha, head, opts);
     const listed = await fetchPullFiles(base, info.changed_files, opts);

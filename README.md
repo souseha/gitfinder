@@ -127,7 +127,7 @@ Every request goes directly from your browser to these services. GitFinder has n
 
 ## Limits and privacy
 
-- **Rate limit**: without a token, the GitHub API allows 60 requests per hour per IP address. Opening a repository uses one or two. To raise the limit to 5,000, add a [personal access token](https://github.com/settings/personal-access-tokens/new) in Settings; public repositories need no scopes. The token is stored in plain text in your browser's `localStorage` and is sent only to `api.github.com`.
+- **Rate limit**: without a token, the GitHub API allows 60 requests per hour per IP address. Opening a repository uses one or two. Branches you have opened are kept in the browser: reopening one within 30 minutes costs nothing, and after that a single request checks for a new commit and reuses the saved file tree if there is none. To see the latest content right away, choose "Reload from GitHub" from the context menu. To raise the limit to 5,000, add a [personal access token](https://github.com/settings/personal-access-tokens/new) in Settings; public repositories need no scopes. The token is stored in plain text in your browser's `localStorage` and is sent only to `api.github.com`.
 - **Very large repositories**: GitHub truncates tree responses above roughly 100,000 entries or 7 MB. GitFinder shows a warning when that happens.
 - **Thumbnails go through a third party**: the URL of each image you view is sent to wsrv.nl.
 - **Private repositories**: the file tree loads with a token, but images and downloads do not, because `raw.githubusercontent.com` is not authorized.
